@@ -1,0 +1,388 @@
+import { useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { ArrowLeft, CalendarCheck, FileText, Pencil } from "lucide-react";
+import { Button } from "@/components/ui/Button";
+import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Badge, StatusBadge } from "@/components/ui/Badge";
+import { LoadingBlock } from "@/components/ui/State";
+import { cn } from "@/lib/cn";
+import { formatMoney } from "@/lib/money";
+import { useCurrentYear, useNamedList, useSettings } from "@/features/settings/api";
+import { balance, paymentStatus, PAYMENT_STATUS_LABEL } from "@/features/fees/logic";
+import { useStudentLedger } from "@/features/fees/api";
+import { useClassGradebook } from "@/features/report-cards/api";
+import {
+  useStudent,
+  useStudentAttendance,
+  useStudentEnrollments,
+  useStudentExamFee,
+} from "./api";
+import { ageFromDob, initials } from "./logic";
+import { StudentFormDrawer } from "./StudentFormDrawer";
+
+export function StudentDetailPage() {
+  const { id: idParam } = useParams();
+  const id = Number(idParam);
+  const navigate = useNavigate();
+
+  const { data: student, isLoading } = useStudent(Number.isFinite(id) ? id : null);
+  const { data: year } = useCurrentYear();
+  const { data: settings } = useSettings();
+  const { data: classes = [] } = useNamedList("classes");
+
+  const attendance = useStudentAttendance(id, year?.id ?? null);
+  const enrollments = useStudentEnrollments(id);
+  const ledger = useStudentLedger(Number.isFinite(id) ? id : null);
+  const examFee = useStudentExamFee(id, year?.id ?? null);
+  // This page has its own attendance query for the one student being viewed,
+  // so skip fetching every classmate's attendance/remarks just for ranking.
+  const gb = useClassGradebook(student?.class_id ?? null, year?.id ?? null, {
+    includeAttendance: false,
+  });
+  const perf = gb.gradebook.find((g) => g.student_id === id) ?? null;
+
+  const [editOpen, setEditOpen] = useState(false);
+
+  const currency = settings?.currency ?? "GH₵";
+
+  if (isLoading) return <LoadingBlock />;
+  if (!student) {
+    return (
+      <div className="rounded-xl border border-border bg-surface px-6 py-16 text-center">
+        <p className="text-sm text-text-muted">That student could not be found.</p>
+        <Link to="/students" className="mt-3 inline-block text-sm text-primary hover:underline">
+          Back to students
+        </Link>
+      </div>
+    );
+  }
+
+  const age = ageFromDob(student.dob);
+  const attTotal = (attendance.data?.present ?? 0) + (attendance.data?.absent ?? 0);
+  const attPct = attTotal ? Math.round(((attendance.data?.present ?? 0) / attTotal) * 100) : null;
+  const examDue = Number(settings?.exam_fee ?? 0);
+  const examPaid = examFee.data?.amount_paid ?? 0;
+  const examStatus = paymentStatus(examDue, examPaid);
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Link
+          to="/students"
+          className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-text"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Students
+        </Link>
+        <Button variant="outline" onClick={() => setEditOpen(true)}>
+          <Pencil className="h-4 w-4" />
+          Edit
+        </Button>
+      </div>
+
+      {/* header */}
+      <Card>
+        <CardBody className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <div className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-xl border border-border bg-surface-muted text-2xl font-semibold text-text-muted">
+            {student.photo_path ? (
+              <img
+                src={convertFileSrc(student.photo_path)}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              initials(student.full_name)
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-xl font-semibold text-text">{student.full_name}</h2>
+              <StatusBadge status={student.status} />
+            </div>
+            <p className="mt-0.5 text-sm text-text-muted">
+              {student.student_code} · {student.class_name ?? "No class"}
+            </p>
+          </div>
+        </CardBody>
+        <div className="grid grid-cols-2 gap-px border-t border-border bg-border text-sm sm:grid-cols-3 lg:grid-cols-4">
+          <Fact label="Student ID" value={student.student_code} />
+          <Fact label="Admission no." value={student.admission_no ?? "—"} />
+          <Fact label="Gender" value={student.gender ?? "—"} />
+          <Fact label="Date of birth" value={student.dob ?? "—"} sub={age != null ? `${age} yrs` : undefined} />
+          <Fact label="Admitted" value={student.date_admitted ?? "—"} />
+          <Fact label="Class" value={student.class_name ?? "—"} />
+          <Fact label="Academic year" value={year ? `${year.hijri_label} AH` : "—"} />
+          <Fact label="Status" value={student.status} />
+        </div>
+      </Card>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        {/* contact */}
+        <Card>
+          <CardHeader title="Contact & guardian" />
+          <CardBody className="space-y-2 text-sm">
+            <Row label="Phone" value={student.contact} />
+            <Row label="Parent / guardian" value={student.guardian} />
+            <Row label="Emergency contact" value={student.emergency_contact} />
+            <Row label="Address" value={student.address} />
+            {student.notes && <Row label="Notes" value={student.notes} />}
+          </CardBody>
+        </Card>
+
+        {/* attendance */}
+        <Card>
+          <CardHeader
+            title="Attendance"
+            description={year ? `${year.hijri_label} AH` : "All records"}
+          />
+          <CardBody>
+            {attendance.isLoading ? (
+              <LoadingBlock />
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-3">
+                  <Stat label="Present" value={String(attendance.data?.present ?? 0)} />
+                  <Stat label="Absent" value={String(attendance.data?.absent ?? 0)} />
+                  <Stat
+                    label="Rate"
+                    value={attPct == null ? "—" : `${attPct}%`}
+                    tone={attPct == null ? "muted" : attPct >= 80 ? "green" : attPct >= 50 ? "amber" : "red"}
+                  />
+                </div>
+                {attendance.data?.recent.length ? (
+                  <div className="mt-4">
+                    <p className="mb-1.5 text-xs text-text-muted">Recent days</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {attendance.data.recent.map((r) => (
+                        <span
+                          key={r.date}
+                          title={`${r.date} — ${r.status}`}
+                          className={cn(
+                            "h-4 w-4 rounded",
+                            r.status === "Present" ? "bg-primary" : "bg-danger",
+                          )}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-text-muted">No attendance recorded yet.</p>
+                )}
+              </>
+            )}
+          </CardBody>
+        </Card>
+
+        {/* academic performance — full width */}
+        <Card className="lg:col-span-2">
+          <CardHeader
+            title="Academic performance"
+            description={year ? `${year.hijri_label} AH` : "No academic year set"}
+            action={
+              student.class_id && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    navigate(`/report-cards?class=${student.class_id}&student=${student.id}`)
+                  }
+                >
+                  <FileText className="h-4 w-4" />
+                  Report card
+                </Button>
+              )
+            }
+          />
+          <CardBody className="p-0">
+            {gb.isLoading ? (
+              <LoadingBlock />
+            ) : !perf || perf.average == null ? (
+              <p className="px-5 py-6 text-sm text-text-muted">
+                No results entered for this student{year ? ` in ${year.hijri_label} AH` : ""}.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[560px] text-sm">
+                  <thead className="border-b border-border bg-surface-muted text-left text-xs text-text-muted">
+                    <tr>
+                      <th className="px-5 py-2 font-medium">Subject</th>
+                      <th className="px-3 py-2 text-right font-medium">CA</th>
+                      <th className="px-3 py-2 text-right font-medium">Exam</th>
+                      <th className="px-3 py-2 text-right font-medium">Total</th>
+                      <th className="px-3 py-2 text-center font-medium">Grade</th>
+                      <th className="px-3 py-2 text-center font-medium">Position</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {perf.cells.map((c) => (
+                      <tr key={c.subject_id}>
+                        <td className="px-5 py-2 font-medium text-text">{c.name}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-text-muted">{c.ca ?? "—"}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-text-muted">{c.exam ?? "—"}</td>
+                        <td className="px-3 py-2 text-right font-medium tabular-nums text-text">{c.total ?? "—"}</td>
+                        <td className="px-3 py-2 text-center font-semibold text-text">{c.grade}</td>
+                        <td className="px-3 py-2 text-center tabular-nums text-text-muted">{c.position ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-border bg-surface-muted font-medium">
+                      <td className="px-5 py-2.5 text-text">Overall</td>
+                      <td colSpan={2} />
+                      <td className="px-3 py-2.5 text-right tabular-nums text-text">{perf.average}</td>
+                      <td className="px-3 py-2.5 text-center font-semibold text-text">{perf.overall_grade}</td>
+                      <td className="px-3 py-2.5 text-center tabular-nums text-text">
+                        {perf.overall_position ?? "—"} / {gb.gradebook.length}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </CardBody>
+        </Card>
+
+        {/* tuition fees */}
+        <Card>
+          <CardHeader title="Daily tuition fees" description={year ? `${year.hijri_label} AH` : "All records"} />
+          <CardBody>
+            {ledger.isLoading || !ledger.data ? (
+              <LoadingBlock />
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-3">
+                  <Stat label="Due" value={formatMoney(ledger.data.due, currency)} />
+                  <Stat label="Paid" value={formatMoney(ledger.data.paid, currency)} />
+                  <Stat
+                    label="Balance"
+                    value={formatMoney(balance(ledger.data.due, ledger.data.paid), currency)}
+                    tone={balance(ledger.data.due, ledger.data.paid) > 0 ? "red" : "green"}
+                  />
+                </div>
+                {ledger.data.payments.length > 0 && (
+                  <ul className="mt-4 space-y-1 text-sm">
+                    {ledger.data.payments.slice(0, 5).map((p) => (
+                      <li key={p.id} className="flex justify-between text-text-muted">
+                        <span>{p.date}{p.receipt_no ? ` · ${p.receipt_no}` : ""}</span>
+                        <span className="tabular-nums text-text">{formatMoney(p.amount, currency)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+          </CardBody>
+        </Card>
+
+        {/* exam fees */}
+        <Card>
+          <CardHeader title="Examination fees" description={year ? `${year.hijri_label} AH` : "No academic year set"} />
+          <CardBody>
+            <div className="grid grid-cols-3 gap-3">
+              <Stat label="Due" value={formatMoney(examDue, currency)} />
+              <Stat label="Paid" value={formatMoney(examPaid, currency)} />
+              <Stat
+                label="Balance"
+                value={formatMoney(balance(examDue, examPaid), currency)}
+                tone={balance(examDue, examPaid) > 0 ? "red" : "green"}
+              />
+            </div>
+            <div className="mt-3 flex items-center gap-2 text-sm">
+              <Badge tone={examStatus === "paid" ? "green" : examStatus === "partial" ? "amber" : "red"}>
+                {PAYMENT_STATUS_LABEL[examStatus]}
+              </Badge>
+              {examFee.data?.receipt_no && (
+                <span className="text-text-muted">Receipt {examFee.data.receipt_no}</span>
+              )}
+            </div>
+          </CardBody>
+        </Card>
+
+        {/* enrollment history */}
+        <Card className="lg:col-span-2">
+          <CardHeader title="Enrollment history" />
+          <CardBody className="p-0">
+            {enrollments.isLoading ? (
+              <LoadingBlock />
+            ) : !enrollments.data?.length ? (
+              <p className="px-5 py-6 text-sm text-text-muted">
+                No enrollment records yet — these are added when a student is created or promoted
+                within an academic year.
+              </p>
+            ) : (
+              <ul className="divide-y divide-border">
+                {enrollments.data.map((e) => (
+                  <li
+                    key={`${e.hijri_label}-${e.class_name}`}
+                    className="flex items-center gap-3 px-5 py-2.5 text-sm"
+                  >
+                    <CalendarCheck className="h-4 w-4 shrink-0 text-text-muted" />
+                    <span className="font-medium text-text">
+                      {e.hijri_label} AH · {e.gregorian_label}
+                    </span>
+                    {e.is_current === 1 && <Badge tone="green">Current</Badge>}
+                    <span className="ml-auto text-text-muted">{e.class_name}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardBody>
+        </Card>
+      </div>
+
+      <StudentFormDrawer
+        open={editOpen}
+        student={student}
+        classes={classes}
+        suggestedAdmissionNo=""
+        onClose={() => setEditOpen(false)}
+      />
+    </div>
+  );
+}
+
+function Fact({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="bg-surface px-4 py-3">
+      <div className="text-xs text-text-muted">{label}</div>
+      <div className="mt-0.5 font-medium text-text">
+        {value}
+        {sub && <span className="ml-1 text-xs font-normal text-text-muted">({sub})</span>}
+      </div>
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div className="flex gap-3">
+      <span className="w-36 shrink-0 text-text-muted">{label}</span>
+      <span className="text-text">{value || "—"}</span>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "muted" | "green" | "amber" | "red";
+}) {
+  const toneCls = {
+    default: "text-text",
+    muted: "text-text-muted",
+    green: "text-primary",
+    amber: "text-warning",
+    red: "text-danger",
+  }[tone];
+  return (
+    <div className="rounded-lg border border-border bg-surface-muted p-3">
+      <div className="text-xs text-text-muted">{label}</div>
+      <div className={cn("mt-0.5 text-sm font-semibold tabular-nums", toneCls)}>{value}</div>
+    </div>
+  );
+}

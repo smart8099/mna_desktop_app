@@ -1,0 +1,56 @@
+name: Build installers
+
+# Builds the desktop installers on their native OS — Tauri cannot
+# cross-compile a Windows installer from macOS (or vice versa), so this runs
+# a matrix of native runners instead.
+#
+# Push a version tag (e.g. `git tag v0.1.0 && git push --tags`) to build both
+# platforms and attach the installers to a draft GitHub Release for review.
+# `workflow_dispatch` lets you re-run the build manually (e.g. to check the
+# pipeline itself still compiles) without cutting a new tag.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [macos-latest, windows-latest]
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      # Builds the app and, on a tag push, creates/updates a draft GitHub
+      # Release with this OS's installer(s) attached. tauri-action reads the
+      # version from src-tauri/tauri.conf.json for __VERSION__.
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "MNA Management System v__VERSION__"
+          releaseBody: "See the assets below to download this version."
+          releaseDraft: true
+          prerelease: false

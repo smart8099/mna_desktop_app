@@ -1,0 +1,470 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { db, renderWithProviders, tauri } from "@/test/harness";
+
+vi.mock("@/lib/db", async () => (await import("@/test/harness")).db.module);
+vi.mock("@tauri-apps/api/core", async () => (await import("@/test/harness")).tauri.core);
+vi.mock("@tauri-apps/plugin-dialog", async () => (await import("@/test/harness")).tauri.dialog);
+
+const CLASSES = [
+  { id: 1, name: "Class 1", sort_order: 1 },
+  { id: 2, name: "Class 2", sort_order: 2 },
+];
+const SUBJECTS = [{ id: 10, name: "Quran", sort_order: 1 }];
+const SETTINGS = {
+  id: 1,
+  school_name: "MNA",
+  currency: "GH₵",
+  weekend_rate: 5,
+  vacation_rate: 3,
+  exam_fee: 40,
+  default_ca_weight: 0.3,
+  default_exam_weight: 0.7,
+};
+const YEAR = { id: 1, hijri_label: "1448", gregorian_label: "2026/2027", is_current: 1 };
+
+function baseFixtures() {
+  db.on(/FROM classes ORDER BY sort_order/i, () => CLASSES);
+  db.on(/SELECT \* FROM classes/i, () => CLASSES);
+  db.on(/SELECT id, name FROM subjects/i, () => SUBJECTS);
+  db.on(/FROM subjects ORDER BY sort_order/i, () => SUBJECTS);
+  db.on(/SELECT \* FROM settings WHERE id = 1/i, () => [SETTINGS]);
+  db.on(/FROM academic_years WHERE is_current = 1/i, () => [YEAR]);
+  db.on(/FROM weight_overrides/i, () => []);
+}
+
+beforeEach(() => {
+  db.reset();
+  tauri.reset();
+  vi.clearAllMocks();
+  // Batched writes go through invoke("execute_transaction", { statements }) rather
+  // than db.execute() directly — bridge it back into the db fake so assertions on
+  // db.executed() keep seeing each statement, unchanged from before batching.
+  tauri.onInvoke("execute_transaction", async (args) => {
+    const { statements } = (args ?? {}) as {
+      statements: { sql: string; params?: unknown[] }[];
+    };
+    for (const s of statements) await db.execute(s.sql, s.params ?? []);
+    return statements.length;
+  });
+});
+
+// ── Students ─────────────────────────────────────────────────────────────────
+
+describe("Students page", () => {
+  const STUDENTS = [
+    { id: 1, student_code: "MNA-0001", admission_no: "MNA1", full_name: "Amina Yakubu", class_id: 2, class_name: "Class 2", status: "Active", guardian: "Yakubu", contact: "+233244000001", gender: "Female", photo_path: null },
+    { id: 2, student_code: "MNA-0002", admission_no: "MNA2", full_name: "Bilal Osei", class_id: 1, class_name: "Class 1", status: "Active", guardian: "Osei", contact: null, gender: "Male", photo_path: null },
+    { id: 3, student_code: "MNA-0003", admission_no: "MNA3", full_name: "Zainab Adam", class_id: 2, class_name: "Class 2", status: "Inactive", guardian: null, contact: null, gender: "Female", photo_path: null },
+  ];
+
+  beforeEach(() => {
+    baseFixtures();
+    db.on(/FROM students s LEFT JOIN classes c/i, () => STUDENTS);
+    db.on(/SELECT student_code FROM students/i, () => STUDENTS.map((s) => ({ student_code: s.student_code })));
+  });
+
+  it("lists students and filters by search", async () => {
+    const { StudentsPage } = await import("@/features/students/StudentsPage");
+    renderWithProviders(<StudentsPage />);
+
+    // the page renders both a table and a card list (media queries don't apply in jsdom)
+    expect((await screen.findAllByText("Amina Yakubu")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Bilal Osei").length).toBeGreaterThan(0);
+
+    await userEvent.type(screen.getByPlaceholderText(/search name/i), "bilal");
+    await waitFor(() => expect(screen.queryAllByText("Amina Yakubu")).toHaveLength(0));
+    expect(screen.getAllByText("Bilal Osei").length).toBeGreaterThan(0);
+  });
+
+  it("adds a student, writing an INSERT with the generated code", async () => {
+    const { StudentsPage } = await import("@/features/students/StudentsPage");
+    renderWithProviders(<StudentsPage />);
+    await screen.findAllByText("Amina Yakubu");
+
+    await userEvent.click(screen.getByRole("button", { name: /add student/i }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText(/full name/i), "New Pupil");
+    await userEvent.click(within(dialog).getByRole("button", { name: /add student/i }));
+
+    await waitFor(() => {
+      const insert = db.executed().find((s) => s.startsWith("INSERT INTO students"));
+      expect(insert).toBeTruthy();
+      expect(insert).toContain("student_code");
+    });
+    // admission number is derived from the next code (MNA-0004 -> MNA4)
+    const insertCall = db.execute.mock.calls.find((c) => String(c[0]).includes("INSERT INTO students"));
+    expect(insertCall?.[1]).toContain("MNA-0004");
+    expect(insertCall?.[1]).toContain("MNA4");
+  });
+});
+
+// ── Attendance ───────────────────────────────────────────────────────────────
+
+describe("Attendance register", () => {
+  beforeEach(() => {
+    baseFixtures();
+    db.on(/a\.status AS mark FROM students s/i, () => [
+      { id: 1, student_code: "MNA-0001", full_name: "Amina Yakubu", class_name: "Class 2", mark: null },
+      { id: 2, student_code: "MNA-0002", full_name: "Bilal Osei", class_name: "Class 1", mark: null },
+    ]);
+  });
+
+  it("marks a student present and saves an upsert", async () => {
+    const { AttendancePage } = await import("@/features/attendance/AttendancePage");
+    renderWithProviders(<AttendancePage />);
+
+    const row = (await screen.findByText("Amina Yakubu")).closest("li")!;
+    await userEvent.click(within(row).getByRole("button", { name: "Present" }));
+
+    const save = screen.getByRole("button", { name: /save attendance/i });
+    await waitFor(() => expect(save).toBeEnabled());
+    await userEvent.click(save);
+
+    await waitFor(() => {
+      const stmts = db.executed();
+      expect(stmts.some((s) => s.startsWith("INSERT INTO attendance") && s.includes("ON CONFLICT(student_id, date)"))).toBe(true);
+    });
+  });
+});
+
+// ── Results ──────────────────────────────────────────────────────────────────
+
+describe("Results entry", () => {
+  beforeEach(() => {
+    baseFixtures();
+    db.on(/FROM students s LEFT JOIN results r/i, () => [
+      { student_id: 1, student_code: "MNA-0001", full_name: "Amina Yakubu", ca_mark: null, exam_mark: null, teacher_remark: null },
+    ]);
+  });
+
+  it("computes a live weighted total and grade, then saves", async () => {
+    const { ResultsPage } = await import("@/features/results/ResultsPage");
+    renderWithProviders(<ResultsPage />);
+
+    const row = (await screen.findByText("Amina Yakubu")).closest("tr")!;
+    const inputs = within(row).getAllByRole("textbox");
+    await userEvent.type(inputs[0], "50"); // CA
+    await userEvent.type(inputs[1], "90"); // Exam
+
+    // 50*0.3 + 90*0.7 = 78 -> B
+    await waitFor(() => {
+      expect(within(row).getByText("78")).toBeInTheDocument();
+      expect(within(row).getByText("B")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: /save results/i }));
+    await waitFor(() => {
+      const insert = db.executed().find((s) => s.startsWith("INSERT INTO results"));
+      expect(insert).toContain("ON CONFLICT(student_id, year_id, subject_id)");
+    });
+  });
+});
+
+// ── Exam fees ────────────────────────────────────────────────────────────────
+
+describe("Exam fees", () => {
+  beforeEach(() => {
+    baseFixtures();
+    db.on(/FROM students s LEFT JOIN classes cl ON cl\.id = s\.class_id LEFT JOIN exam_fees ef/i, () => [
+      { student_id: 1, student_code: "MNA-0001", full_name: "Amina Yakubu", class_name: "Class 2", fee_id: 7, amount_due: 40, amount_paid: 40, receipt_no: "EX-0001", notes: null },
+      { student_id: 2, student_code: "MNA-0002", full_name: "Bilal Osei", class_name: "Class 1", fee_id: null, amount_due: 0, amount_paid: 0, receipt_no: null, notes: null },
+    ]);
+  });
+
+  function paymentFilter() {
+    return within(screen.getByText("Payment").parentElement as HTMLElement).getByRole("combobox");
+  }
+
+  it("filters by payment status", async () => {
+    const { ExamFeesPage } = await import("@/features/exam-fees/ExamFeesPage");
+    renderWithProviders(<ExamFeesPage />);
+
+    expect(await screen.findByText("Amina Yakubu")).toBeInTheDocument();
+    expect(screen.getByText("Bilal Osei")).toBeInTheDocument();
+
+    await userEvent.selectOptions(paymentFilter(), "unpaid");
+    await waitFor(() => expect(screen.queryByText("Amina Yakubu")).not.toBeInTheDocument());
+    expect(screen.getByText("Bilal Osei")).toBeInTheDocument();
+  });
+
+  it("records a payment against the standard fee (amount due is read-only)", async () => {
+    const { ExamFeesPage } = await import("@/features/exam-fees/ExamFeesPage");
+    renderWithProviders(<ExamFeesPage />);
+
+    await userEvent.click(await screen.findByText("Bilal Osei"));
+    const dialog = await screen.findByRole("dialog");
+    const [due, paid] = within(dialog).getAllByRole("textbox");
+    expect(due).toHaveValue("GH₵ 40.00");
+    expect(due).toHaveAttribute("readonly");
+
+    await userEvent.type(paid, "40");
+    await userEvent.click(within(dialog).getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      const insert = db.executed().find((s) => s.startsWith("INSERT INTO exam_fees"));
+      expect(insert).toContain("ON CONFLICT(student_id, year_id)");
+    });
+  });
+});
+
+// ── Dashboard ────────────────────────────────────────────────────────────────
+
+describe("Dashboard", () => {
+  beforeEach(() => {
+    baseFixtures();
+    db.on(/COUNT\(\*\) AS total, COALESCE\(SUM\(status = 'Active'\), 0\) AS active FROM students/i, () => [{ total: 48, active: 47 }]);
+    db.on(/COUNT\(\*\) AS n FROM teachers/i, () => [{ n: 6 }]);
+    db.on(/COUNT\(s\.id\) AS n FROM classes c/i, () => [{ name: "Class 2", n: 15 }]);
+    db.on(/AS v FROM fee_payments/i, () => [{ v: 120 }]);
+    db.on(/AS v FROM attendance a WHERE a\.status = 'Present'/i, () => [{ v: 300 }]);
+    db.on(/AS v FROM exam_fees/i, () => [{ v: 80 }]);
+    db.on(/AS present, COUNT\(\*\) AS total FROM attendance a WHERE 1 = 1/i, () => [{ present: 25, total: 35 }]);
+    db.on(/COUNT\(a\.id\) AS total FROM classes c/i, () => [{ name: "Class 2", present: 25, total: 35 }]);
+    db.on(/COUNT\(\*\) AS n FROM results/i, () => [{ n: 12 }]);
+    db.on(/FROM results r JOIN students s ON s\.id = r\.student_id/i, () => [
+      { subject_id: 10, class_id: 2, ca_mark: 80, exam_mark: 80 },
+    ]);
+  });
+
+  it("shows headline figures", async () => {
+    const { DashboardPage } = await import("@/features/dashboard/DashboardPage");
+    renderWithProviders(<DashboardPage />);
+
+    expect(await screen.findByText("47")).toBeInTheDocument(); // active students
+    expect(screen.getByText("48 on the register")).toBeInTheDocument();
+    expect(screen.getByText("GH₵ 200.00")).toBeInTheDocument(); // 120 tuition + 80 exam
+    // one A grade from 80/80
+    expect(screen.getByText("Grade A").closest("li")).toHaveTextContent("1");
+  });
+});
+
+// ── Student detail ───────────────────────────────────────────────────────────
+
+describe("Student detail page", () => {
+  beforeEach(() => {
+    baseFixtures();
+    db.on(/FROM students s LEFT JOIN classes c ON c\.id = s\.class_id WHERE s\.id/i, () => [
+      { id: 1, student_code: "MNA-0001", admission_no: "MNA1", full_name: "Amina Yakubu", class_id: 2, class_name: "Class 2", status: "Active", gender: "Female", dob: "2011-03-18", contact: "+233244000001", guardian: "Yakubu", emergency_contact: null, address: null, notes: null, photo_path: null, date_admitted: "2021-09-01" },
+    ]);
+    db.on(/AS present, COALESCE\(SUM\(status = 'Absent'\), 0\) AS absent FROM attendance/i, () => [{ present: 10, absent: 2 }]);
+    db.on(/SELECT date, status FROM attendance WHERE student_id/i, () => [{ date: "2026-09-01", status: "Present" }]);
+    db.on(/FROM student_enrollments e/i, () => []);
+    db.on(/FROM attendance a WHERE a\.student_id = 1/i, () => []); // ledger charges
+    db.on(/FROM fee_payments WHERE student_id = 1/i, () => []);
+    db.on(/FROM exam_fees WHERE student_id = \? AND year_id = \?/i, () => [
+      { amount_due: 40, amount_paid: 40, receipt_no: "EX-0001", notes: null },
+    ]);
+    db.on(/s\.gender, cl\.name AS class_name FROM students s LEFT JOIN classes cl/i, () => [
+      { student_id: 1, student_code: "MNA-0001", full_name: "Amina Yakubu", gender: "Female", class_name: "Class 2" },
+    ]);
+    db.on(/FROM results r JOIN students s ON s\.id = r\.student_id WHERE s\.class_id/i, () => [
+      { student_id: 1, subject_id: 10, ca_mark: 80, exam_mark: 80, teacher_remark: null },
+    ]);
+    db.on(/AS present, .*absent FROM students s LEFT JOIN attendance a/i, () => [{ student_id: 1, present: 10, absent: 2 }]);
+    db.on(/FROM report_card_remarks rc JOIN students s/i, () => []);
+  });
+
+  it("renders profile, admission number and computed performance", async () => {
+    const { StudentDetailPage } = await import("@/features/students/StudentDetailPage");
+    renderWithProviders(<StudentDetailPage />, { route: "/students/1", path: "/students/:id" });
+
+    expect(await screen.findByRole("heading", { name: "Amina Yakubu" })).toBeInTheDocument();
+    expect(screen.getByText("Admission no.")).toBeInTheDocument();
+    expect(screen.getByText("MNA1")).toBeInTheDocument();
+    expect(screen.getByText("Paid in full")).toBeInTheDocument();
+
+    // 80/80 with 30/70 weights -> 80, grade A, appears in the performance table
+    await waitFor(() => {
+      const quranRow = screen.getByText("Quran").closest("tr")!;
+      const cells = within(quranRow).getAllByRole("cell");
+      expect(cells[3]).toHaveTextContent("80"); // Total
+      expect(cells[4]).toHaveTextContent("A"); // Grade
+    });
+  });
+});
+
+// ── Teacher detail ───────────────────────────────────────────────────────────
+
+describe("Teacher detail page", () => {
+  beforeEach(() => {
+    baseFixtures();
+    db.on(/SELECT \* FROM teachers WHERE id/i, () => [
+      { id: 1, teacher_code: "MNA-T001", name: "Ustadh Yusuf", contact: "+233244555000", status: "Active", date_joined: "2020-09-01", notes: "Head of Qur'an" },
+    ]);
+    db.on(/GROUP_CONCAT\(DISTINCT sub\.name\) AS subjects/i, () => [
+      { class_id: 2, class_name: "Class 2", subjects: "Quran,Tajweed", students: 15 },
+    ]);
+    db.on(/FROM teacher_assignments ta JOIN classes c ON c\.id = ta\.class_id JOIN subjects s ON s\.id = ta\.subject_id/i, () => [
+      { id: 1, teacher_id: 1, class_id: 2, subject_id: 10, class_name: "Class 2", subject_name: "Quran" },
+      { id: 2, teacher_id: 1, class_id: 2, subject_id: 11, class_name: "Class 2", subject_name: "Tajweed" },
+    ]);
+  });
+
+  it("renders the teacher profile and teaching load", async () => {
+    const { TeacherDetailPage } = await import("@/features/teachers/TeacherDetailPage");
+    renderWithProviders(<TeacherDetailPage />, { route: "/teachers/1", path: "/teachers/:id" });
+
+    expect(await screen.findByRole("heading", { name: "Ustadh Yusuf" })).toBeInTheDocument();
+    expect(screen.getAllByText("MNA-T001").length).toBeGreaterThan(0);
+    expect(screen.getByText("Head of Qur'an")).toBeInTheDocument();
+
+    await waitFor(() => {
+      const classRow = screen.getByText("Class 2").closest("li")!;
+      expect(within(classRow).getByText("Quran, Tajweed")).toBeInTheDocument();
+      expect(within(classRow).getByText("15")).toBeInTheDocument();
+    });
+  });
+});
+
+// ── Fees (tuition ledger) ────────────────────────────────────────────────────
+
+describe("Fees page", () => {
+  beforeEach(() => {
+    baseFixtures();
+    db.on(/COALESCE\(\(SELECT SUM\(.*\) FROM attendance a WHERE a\.student_id = s\.id/is, () => [
+      { id: 1, student_code: "MNA-0001", full_name: "Amina Yakubu", class_name: "Class 2", due: 15, paid: 5 },
+    ]);
+    // the ledger drawer recomputes due/paid from its own queries
+    db.on(/SELECT date, rate, dow FROM \(/is, () => [
+      { date: "2026-09-05", rate: 5, dow: 6 },
+      { date: "2026-09-06", rate: 5, dow: 0 },
+      { date: "2026-09-12", rate: 5, dow: 6 },
+    ]);
+    db.on(/FROM fee_payments WHERE student_id = 1/i, () => [
+      { id: 1, date: "2026-09-06", amount: 5, note: null, receipt_no: "F-0001" },
+    ]);
+    db.on(/SELECT receipt_no FROM fee_payments/i, () => [{ receipt_no: "F-0001" }]);
+  });
+
+  it("shows balances and records a payment from the ledger drawer", async () => {
+    const { FeesPage } = await import("@/features/fees/FeesPage");
+    renderWithProviders(<FeesPage />);
+
+    await userEvent.click(await screen.findByText("Amina Yakubu"));
+    const drawer = await screen.findByRole("dialog");
+    expect(within(drawer).getByText("GH₵ 10.00")).toBeInTheDocument(); // balance = 15 - 5
+
+    await userEvent.type(within(drawer).getByLabelText(/amount/i), "10");
+    await userEvent.click(within(drawer).getByRole("button", { name: /record payment/i }));
+
+    await waitFor(() => {
+      const insert = db.executed().find((s) => s.startsWith("INSERT INTO fee_payments"));
+      expect(insert).toBeTruthy();
+    });
+  });
+});
+
+// ── Settings: academic years ─────────────────────────────────────────────────
+
+describe("Settings — academic years", () => {
+  beforeEach(() => {
+    baseFixtures();
+    db.on(/FROM academic_years ORDER BY is_current DESC/i, () => [
+      { id: 1, gregorian_label: "2025/2026", hijri_label: "1447", start_date: null, end_date: null, is_current: 1 },
+    ]);
+    db.on(/SELECT COUNT\(\*\) AS c FROM academic_years/i, () => [{ c: 1 }]);
+  });
+
+  it("adds a new academic year", async () => {
+    const { AcademicYearsSection } = await import("@/features/settings/AcademicYearsSection");
+    renderWithProviders(<AcademicYearsSection />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /add year/i }));
+    const dialog = await screen.findByRole("dialog");
+    // both label fields are pre-filled with suggestions; just submit
+    await userEvent.click(within(dialog).getByRole("button", { name: /add year/i }));
+
+    await waitFor(() => {
+      expect(db.executed().some((s) => s.startsWith("INSERT INTO academic_years"))).toBe(true);
+    });
+  });
+});
+
+// ── Settings: grading weight overrides ───────────────────────────────────────
+
+describe("Settings — weight overrides", () => {
+  beforeEach(() => {
+    baseFixtures();
+    db.on(/FROM weight_overrides/i, () => []);
+  });
+
+  it("adds a class override with an upsert", async () => {
+    const { WeightOverridesSection } = await import("@/features/settings/WeightOverridesSection");
+    renderWithProviders(<WeightOverridesSection />);
+
+    await screen.findByRole("option", { name: "Class 1" });
+    await userEvent.selectOptions(screen.getByLabelText("Class"), "1");
+    await userEvent.clear(screen.getByLabelText("CA %"));
+    await userEvent.type(screen.getByLabelText("CA %"), "40");
+    await userEvent.clear(screen.getByLabelText("Exam %"));
+    await userEvent.type(screen.getByLabelText("Exam %"), "60");
+    await userEvent.click(screen.getByRole("button", { name: /^add$/i }));
+
+    await waitFor(() => {
+      const insert = db.executed().find((s) => s.startsWith("INSERT INTO weight_overrides"));
+      expect(insert).toContain("ON CONFLICT(scope, ref_id)");
+    });
+  });
+});
+
+// ── Students: promotion ─────────────────────────────────────────────────────
+
+describe("Students — promotion", () => {
+  beforeEach(() => {
+    baseFixtures();
+    db.on(/FROM students s LEFT JOIN classes c/i, () => [
+      { id: 1, student_code: "MNA-0001", admission_no: "MNA1", full_name: "Amina Yakubu", class_id: 1, class_name: "Class 1", status: "Active", guardian: null, contact: null, gender: "Female", photo_path: null },
+    ]);
+    db.on(/SELECT student_code FROM students/i, () => [{ student_code: "MNA-0001" }]);
+  });
+
+  it("promotes a selected student to the next class", async () => {
+    const { StudentsPage } = await import("@/features/students/StudentsPage");
+    renderWithProviders(<StudentsPage />);
+
+    await screen.findAllByText("Amina Yakubu");
+    await userEvent.click(screen.getAllByRole("checkbox", { name: /select amina/i })[0]);
+    await userEvent.click(screen.getByRole("button", { name: /promote to next class/i }));
+
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: /promote 1/i }));
+
+    await waitFor(() => {
+      const upd = db.executed().find((s) => s.startsWith("UPDATE students SET class_id"));
+      expect(upd).toBeTruthy();
+    });
+  });
+});
+
+// ── Backup & Recovery ───────────────────────────────────────────────────────
+
+describe("Backup page", () => {
+  beforeEach(() => {
+    tauri.onInvoke("database_info", () => ({
+      path: "/data/mna.db",
+      size_bytes: 40960,
+      schema_version: 2,
+    }));
+    tauri.onInvoke("list_backups", () => []);
+    tauri.onInvoke("backup_database", () => 40960);
+  });
+
+  it("shows database info and downloads a backup through the save dialog", async () => {
+    const { BackupPage } = await import("@/features/backup/BackupPage");
+    renderWithProviders(<BackupPage />);
+
+    expect(await screen.findByText("/data/mna.db")).toBeInTheDocument();
+    expect(screen.getByText("v2")).toBeInTheDocument();
+
+    tauri.dialog.save.mockResolvedValueOnce("/somewhere/mna-backup.db");
+    await userEvent.click(screen.getByRole("button", { name: /download database file/i }));
+
+    await waitFor(() => {
+      expect(tauri.core.invoke).toHaveBeenCalledWith("backup_database", {
+        destPath: "/somewhere/mna-backup.db",
+      });
+    });
+  });
+});

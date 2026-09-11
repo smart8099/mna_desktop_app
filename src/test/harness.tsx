@@ -1,0 +1,120 @@
+import type { ReactElement, ReactNode } from "react";
+import { vi } from "vitest";
+import { render } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MutationCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+/** Mockable Tauri `invoke` + dialog, dispatched by command name. */
+export function createTauriMock() {
+  const handlers: Record<string, (args?: unknown) => unknown> = {};
+  const invoke = vi.fn(async (cmd: string, args?: unknown) =>
+    cmd in handlers ? handlers[cmd](args) : undefined,
+  );
+  const open = vi.fn(async () => null as string | null);
+  const save = vi.fn(async () => null as string | null);
+  return {
+    core: { invoke },
+    dialog: { open, save },
+    onInvoke(cmd: string, fn: (args?: unknown) => unknown) {
+      handlers[cmd] = fn;
+    },
+    reset() {
+      for (const k of Object.keys(handlers)) delete handlers[k];
+      invoke.mockClear();
+      open.mockReset().mockResolvedValue(null);
+      save.mockReset().mockResolvedValue(null);
+    },
+  };
+}
+
+/**
+ * Shared singleton so a test file and its `vi.mock("@tauri-apps/api/core")` /
+ * `vi.mock("@tauri-apps/plugin-dialog")` reference the same fake. Defined
+ * before `db` below, which calls into `tauri.core.invoke` directly (NOT via
+ * an import of "@tauri-apps/api/core" — that module is itself mocked from
+ * this file in test files, and importing it here too would be circular).
+ */
+export const tauri = createTauriMock();
+
+type Row = Record<string, unknown>;
+type Handler = (sql: string, params: unknown[]) => Row[] | undefined;
+
+/**
+ * A pattern-matched fake for `@/lib/db`. Tests register handlers keyed by a
+ * regex against the (whitespace-normalised) SQL string; the first match wins,
+ * otherwise `select` returns `[]`. `execute` records every call.
+ */
+export function createDbMock() {
+  const handlers: { match: RegExp; fn: Handler }[] = [];
+
+  const select = async (sql: string, params: unknown[] = []) => {
+    const h = handlers.find((x) => x.match.test(sql.replace(/\s+/g, " ")));
+    return h?.fn(sql, params) ?? [];
+  };
+  const selectOne = async (sql: string, params: unknown[] = []) => {
+    const rows = await select(sql, params);
+    return rows[0] ?? null;
+  };
+  const execute = vi.fn(
+    async (_sql: string, _params: unknown[] = []) => ({ rowsAffected: 1, lastInsertId: 999 }),
+  );
+  // Mirrors the real executeBatch: routes through invoke("execute_transaction", ...)
+  // so it exercises the same mocked Tauri bridge tests register handlers against.
+  const executeBatch = async (statements: { sql: string; params?: unknown[] }[]) => {
+    if (!statements.length) return;
+    await tauri.core.invoke("execute_transaction", {
+      statements: statements.map((s) => ({ sql: s.sql, params: s.params ?? [] })),
+    });
+  };
+
+  return {
+    module: { select, selectOne, execute, executeBatch, getDb: vi.fn() },
+    execute,
+    on(match: RegExp, fn: Handler) {
+      handlers.push({ match, fn });
+    },
+    reset() {
+      handlers.length = 0;
+      execute.mockClear();
+    },
+    /** SQL strings passed to execute(), whitespace-normalised. */
+    executed(): string[] {
+      return execute.mock.calls.map((c: unknown[]) =>
+        String(c[0]).replace(/\s+/g, " ").trim(),
+      );
+    },
+  };
+}
+
+/** Shared singleton so a test file and its `vi.mock("@/lib/db")` reference the same fake. */
+export const db = createDbMock();
+
+export function renderWithProviders(
+  ui: ReactElement,
+  opts: { route?: string; path?: string } = {},
+) {
+  const queryClient: QueryClient = new QueryClient({
+    mutationCache: new MutationCache({
+      onSettled: (): void => {
+        void queryClient.invalidateQueries();
+      },
+    }),
+    defaultOptions: { queries: { retry: false, staleTime: 0 }, mutations: { retry: false } },
+  });
+
+  const wrapper = (children: ReactNode) => (
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[opts.route ?? "/"]}>
+        {opts.path ? (
+          <Routes>
+            <Route path={opts.path} element={children} />
+          </Routes>
+        ) : (
+          children
+        )}
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+
+  return { queryClient, ...render(wrapper(ui)) };
+}
