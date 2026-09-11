@@ -37,6 +37,12 @@ jobs:
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          # macos-latest runners are Apple Silicon, so building for the host
+          # target alone produces an arm64-only .dmg that refuses to launch
+          # on Intel Macs ("not supported on this Mac"). Adding both targets
+          # lets tauri-action build a universal binary that runs on either.
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -54,6 +60,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
           tagName: ${{ github.ref_name }}
           releaseName: "MNA Management System v__VERSION__"
           releaseBody: "See the assets below to download this version."
@@ -68,3 +75,5 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
