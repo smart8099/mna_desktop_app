@@ -269,6 +269,7 @@ mod tests {
     const PHASE3_SQL: &str = include_str!("../migrations/0003_indexes.sql");
     const PHASE4_SQL: &str = include_str!("../migrations/0004_subject_classes.sql");
     const PHASE5_SQL: &str = include_str!("../migrations/0005_auth.sql");
+    const PHASE6_SQL: &str = include_str!("../migrations/0006_username_case_insensitive.sql");
 
     fn test_db() -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
@@ -279,6 +280,7 @@ mod tests {
         conn.execute_batch(PHASE3_SQL).unwrap();
         conn.execute_batch(PHASE4_SQL).unwrap();
         conn.execute_batch(PHASE5_SQL).unwrap();
+        conn.execute_batch(PHASE6_SQL).unwrap();
         (dir, path)
     }
 
@@ -308,6 +310,20 @@ mod tests {
 
         assert!(verify_login_at(&path, "amina", "wrong").is_err());
         assert!(verify_login_at(&path, "nobody", "secret1").is_err());
+    }
+
+    #[test]
+    fn login_ignores_the_case_of_the_username() {
+        let (_dir, path) = test_db();
+        create_user_at(&path, "Obed", "secret1", "teacher").unwrap();
+
+        // the actual reported bug: an account created as "Obed" couldn't
+        // log in as "obed" even with the correct password
+        let user = verify_login_at(&path, "obed", "secret1").unwrap();
+        assert_eq!(user.username, "Obed");
+
+        assert!(verify_login_at(&path, "OBED", "secret1").is_ok());
+        assert!(create_user_at(&path, "obed", "secret2", "teacher").is_err(), "case-only duplicate");
     }
 
     #[test]

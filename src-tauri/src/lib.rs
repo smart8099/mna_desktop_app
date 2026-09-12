@@ -41,6 +41,12 @@ fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0005_auth.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 6,
+            description: "case-insensitive usernames",
+            sql: include_str!("../migrations/0006_username_case_insensitive.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }
 

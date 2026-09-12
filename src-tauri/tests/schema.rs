@@ -10,6 +10,7 @@ const PHASE2_SQL: &str = include_str!("../migrations/0002_phase2.sql");
 const PHASE3_SQL: &str = include_str!("../migrations/0003_indexes.sql");
 const PHASE4_SQL: &str = include_str!("../migrations/0004_subject_classes.sql");
 const PHASE5_SQL: &str = include_str!("../migrations/0005_auth.sql");
+const PHASE6_SQL: &str = include_str!("../migrations/0006_username_case_insensitive.sql");
 
 fn db() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
@@ -18,6 +19,7 @@ fn db() -> Connection {
     conn.execute_batch(PHASE3_SQL).unwrap();
     conn.execute_batch(PHASE4_SQL).unwrap();
     conn.execute_batch(PHASE5_SQL).unwrap();
+    conn.execute_batch(PHASE6_SQL).unwrap();
     conn.pragma_update(None, "foreign_keys", true).unwrap();
     conn
 }
@@ -79,7 +81,7 @@ fn seed_data_matches_the_spreadsheet() {
             |r| r.get(0)
         )
         .unwrap(),
-        "5"
+        "6"
     );
 }
 
@@ -645,6 +647,29 @@ fn a_username_must_be_unique() {
         [],
     );
     assert!(dup.is_err(), "UNIQUE(username) must hold");
+}
+
+#[test]
+fn username_lookup_and_uniqueness_are_case_insensitive() {
+    let conn = db();
+    conn.execute(
+        "INSERT INTO users (username, password_hash, role) VALUES ('Obed', 'x', 'teacher')",
+        [],
+    )
+    .unwrap();
+
+    // logging in as "obed" must find the account created as "Obed"
+    let found: i64 = conn
+        .query_row("SELECT COUNT(*) FROM users WHERE username = 'obed'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(found, 1, "username lookup should ignore case");
+
+    // and a second account can't be created that only differs by case
+    let dup = conn.execute(
+        "INSERT INTO users (username, password_hash, role) VALUES ('obed', 'y', 'teacher')",
+        [],
+    );
+    assert!(dup.is_err(), "UNIQUE(username) should ignore case too");
 }
 
 fn seed_one_student_year_subject(conn: &Connection) {
