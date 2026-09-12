@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Pagination } from "@/components/ui/Pagination";
 import { Drawer } from "@/components/ui/Drawer";
 import { LoadingBlock, ErrorBlock, EmptyRow } from "@/components/ui/State";
+import { YearSelect } from "@/components/ui/YearSelect";
 import { formatMoney, parseMoney } from "@/lib/money";
 import { useDebounce } from "@/lib/useDebounce";
 import { usePagination } from "@/lib/usePagination";
@@ -18,7 +19,7 @@ import {
   PAYMENT_STATUS_LABEL,
   type PaymentStatus,
 } from "@/features/fees/logic";
-import { useCurrentYear, useNamedList, useSettings } from "@/features/settings/api";
+import { useNamedList, useSettings, useYearFilter } from "@/features/settings/api";
 import { useExamFees, useSaveExamFee, type ExamFeeRow } from "./api";
 
 /**
@@ -32,10 +33,10 @@ function effectiveDue(_row: ExamFeeRow, standardFee: number): number {
 
 export function ExamFeesPage() {
   const { data: settings } = useSettings();
-  const { data: year } = useCurrentYear();
+  const { years, year, yearId, setYearId, isCurrentYear } = useYearFilter();
   const { data: classes = [] } = useNamedList("classes");
   const [classId, setClassId] = useState<number | "all">("all");
-  const { data: rows, isLoading, error } = useExamFees(classId, year?.id ?? null);
+  const { data: rows, isLoading, error } = useExamFees(classId, yearId);
 
   const [editing, setEditing] = useState<ExamFeeRow | null>(null);
   const [q, setQ] = useState("");
@@ -85,14 +86,24 @@ export function ExamFeesPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-xl font-semibold text-text">Examination fees</h2>
-        <p className="mt-1 text-sm text-text-muted">
-          {year.hijri_label} AH · {year.gregorian_label}. Standard fee{" "}
-          <span className="font-medium text-text">{formatMoney(standardFee, currency)}</span> — change
-          it in Settings → Fees &amp; Grading.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold text-text">Examination fees</h2>
+          <p className="mt-1 text-sm text-text-muted">
+            {year.hijri_label} AH · {year.gregorian_label}. Standard fee{" "}
+            <span className="font-medium text-text">{formatMoney(standardFee, currency)}</span> — change
+            it in Settings → Fees &amp; Grading.
+          </p>
+        </div>
+        {years.length > 0 && <YearSelect years={years} value={yearId} onChange={setYearId} />}
       </div>
+
+      {!isCurrentYear && (
+        <div className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm text-warning">
+          Viewing {year.hijri_label} AH — not the current academic year. Records are read-only;
+          switch back to the current year to log payments.
+        </div>
+      )}
 
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Class" className="w-48">
@@ -214,6 +225,7 @@ export function ExamFeesPage() {
         row={editing}
         currency={currency}
         standardFee={standardFee}
+        readOnly={!isCurrentYear}
         onClose={() => setEditing(null)}
       />
     </div>
@@ -224,11 +236,13 @@ function ExamFeeDrawer({
   row,
   currency,
   standardFee,
+  readOnly = false,
   onClose,
 }: {
   row: ExamFeeRow | null;
   currency: string;
   standardFee: number;
+  readOnly?: boolean;
   onClose: () => void;
 }) {
   const save = useSaveExamFee();
@@ -273,18 +287,30 @@ function ExamFeeDrawer({
       title={row ? row.full_name : ""}
       description={row ? `${row.student_code} · examination fee` : ""}
       footer={
-        <>
+        readOnly ? (
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            Close
           </Button>
-          <Button onClick={submit} loading={save.isPending}>
-            Save
-          </Button>
-        </>
+        ) : (
+          <>
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button onClick={submit} loading={save.isPending}>
+              Save
+            </Button>
+          </>
+        )
       }
     >
       {row && (
         <div className="space-y-4">
+          {readOnly && (
+            <p className="rounded-lg bg-warning/10 p-3 text-xs text-warning">
+              This is a past academic year — viewing only. Switch to the current year to record a
+              payment.
+            </p>
+          )}
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label={`Amount due (${currency})`} hint="Set by the standard fee in Settings.">
               <Input
@@ -295,7 +321,14 @@ function ExamFeeDrawer({
               />
             </Field>
             <Field label={`Amount paid (${currency})`}>
-              <Input inputMode="decimal" value={paid} onChange={(e) => setPaid(e.target.value)} />
+              <Input
+                inputMode="decimal"
+                value={paid}
+                onChange={(e) => setPaid(e.target.value)}
+                readOnly={readOnly}
+                tabIndex={readOnly ? -1 : undefined}
+                className={readOnly ? "cursor-default bg-surface-muted text-text-muted" : undefined}
+              />
             </Field>
           </div>
           {due === 0 && (
@@ -311,7 +344,12 @@ function ExamFeeDrawer({
             {row.receipt_no && ` · receipt ${row.receipt_no}`}
           </div>
           <Field label="Notes (optional)">
-            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <Textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              readOnly={readOnly}
+              className={readOnly ? "cursor-default bg-surface-muted text-text-muted" : undefined}
+            />
           </Field>
         </div>
       )}

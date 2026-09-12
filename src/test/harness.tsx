@@ -70,8 +70,11 @@ export function createDbMock() {
   return {
     module: { select, selectOne, execute, executeBatch, getDb: vi.fn() },
     execute,
+    // Newest registration wins when two patterns match the same SQL — lets a
+    // test's own db.on() override a pattern baseFixtures() already covers,
+    // without needing to touch shared setup.
     on(match: RegExp, fn: Handler) {
-      handlers.push({ match, fn });
+      handlers.unshift({ match, fn });
     },
     reset() {
       handlers.length = 0;

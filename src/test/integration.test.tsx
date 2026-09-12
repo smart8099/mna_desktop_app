@@ -31,6 +31,11 @@ function baseFixtures() {
   db.on(/FROM subjects ORDER BY sort_order/i, () => SUBJECTS);
   db.on(/SELECT \* FROM settings WHERE id = 1/i, () => [SETTINGS]);
   db.on(/FROM academic_years WHERE is_current = 1/i, () => [YEAR]);
+  // useYearFilter() resolves the selected year's label etc. by looking it up
+  // in this plain list, not just the "current" query above — needed even
+  // when a test never switches years, since ExamFeesPage/ReportCardPage
+  // gate their whole render on that lookup succeeding.
+  db.on(/FROM academic_years ORDER BY is_current DESC/i, () => [YEAR]);
   db.on(/FROM weight_overrides/i, () => []);
 }
 
@@ -295,6 +300,31 @@ describe("Exam fees", () => {
       const insert = db.executed().find((s) => s.startsWith("INSERT INTO exam_fees"));
       expect(insert).toContain("ON CONFLICT(student_id, year_id)");
     });
+  });
+
+  it("makes a past year's records read-only", async () => {
+    db.on(/FROM academic_years ORDER BY is_current DESC/i, () => [
+      YEAR,
+      { id: 2, hijri_label: "1447", gregorian_label: "2024/2025", is_current: 0 },
+    ]);
+
+    const { ExamFeesPage } = await import("@/features/exam-fees/ExamFeesPage");
+    renderWithProviders(<ExamFeesPage />);
+    await screen.findByText("Amina Yakubu");
+
+    expect(screen.queryByText(/not the current academic year/i)).not.toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText("Academic year"), "2");
+    await waitFor(() =>
+      expect(screen.getByText(/not the current academic year/i)).toBeInTheDocument(),
+    );
+
+    await userEvent.click(screen.getByText("Bilal Osei"));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/viewing only/i)).toBeInTheDocument();
+    const [, paid] = within(dialog).getAllByRole("textbox");
+    expect(paid).toHaveAttribute("readonly");
+    expect(within(dialog).queryByRole("button", { name: /^save$/i })).not.toBeInTheDocument();
   });
 });
 
