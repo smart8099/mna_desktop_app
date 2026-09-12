@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom";
 import { NAV } from "./nav";
 import { Logo } from "@/components/ui/Logo";
 import { cn } from "@/lib/cn";
+import { useIsAdmin } from "@/features/auth/AuthContext";
 
 export function Sidebar({
   collapsed,
@@ -10,6 +11,9 @@ export function Sidebar({
   collapsed: boolean;
   onNavigate?: () => void;
 }) {
+  const isAdmin = useIsAdmin();
+  const items = NAV.filter((n) => !n.adminOnly || isAdmin);
+
   return (
     <div className="flex h-full flex-col">
       <div
@@ -28,7 +32,7 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
-        {NAV.map(({ to, label, icon: Icon, ready }) => (
+        {items.map(({ to, label, icon: Icon, ready }) => (
           <NavLink
             key={to}
             to={to}

@@ -19,6 +19,8 @@ export interface NavItem {
   icon: LucideIcon;
   ready?: boolean;
   phase?: number;
+  /** Hidden from, and route-blocked for, a teacher account. */
+  adminOnly?: boolean;
 }
 
 export const NAV: NavItem[] = [
@@ -31,8 +33,8 @@ export const NAV: NavItem[] = [
   { to: "/results", label: "Results", icon: ClipboardList, ready: true },
   { to: "/report-cards", label: "Report Cards", icon: FileText, ready: true },
   { to: "/receipts", label: "Exam Receipts", icon: Printer, ready: true },
-  { to: "/settings", label: "Settings", icon: Settings, ready: true },
-  { to: "/backup", label: "Backup & Recovery", icon: DatabaseBackup, ready: true },
+  { to: "/settings", label: "Settings", icon: Settings, ready: true, adminOnly: true },
+  { to: "/backup", label: "Backup & Recovery", icon: DatabaseBackup, ready: true, adminOnly: true },
 ];
 
 export function titleForPath(pathname: string): string {

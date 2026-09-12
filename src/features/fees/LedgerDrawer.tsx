@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { Input, Textarea } from "@/components/ui/Input";
 import { LoadingBlock } from "@/components/ui/State";
+import { useIsAdmin } from "@/features/auth/AuthContext";
 import { formatMoney, parseMoney } from "@/lib/money";
 import { todayISO } from "@/lib/format";
 import { balance, dayName } from "./logic";
@@ -20,6 +21,7 @@ export function LedgerDrawer({
   currency: string;
   onClose: () => void;
 }) {
+  const isAdmin = useIsAdmin();
   const { data, isLoading } = useStudentLedger(student?.id ?? null);
   const record = useRecordPayment();
   const removePayment = useDeletePayment();
@@ -123,19 +125,21 @@ export function LedgerDrawer({
                         {p.note ? ` · ${p.note}` : ""}
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Delete payment"
-                      onClick={() =>
-                        removePayment
-                          .mutateAsync(p.id)
-                          .then(() => toast.success("Payment removed."))
-                          .catch((e) => toast.error(String(e)))
-                      }
-                    >
-                      <Trash2 className="h-4 w-4 text-danger" />
-                    </Button>
+                    {isAdmin && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Delete payment"
+                        onClick={() =>
+                          removePayment
+                            .mutateAsync(p.id)
+                            .then(() => toast.success("Payment removed."))
+                            .catch((e) => toast.error(String(e)))
+                        }
+                      >
+                        <Trash2 className="h-4 w-4 text-danger" />
+                      </Button>
+                    )}
                   </li>
                 ))}
               </ul>

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Route, Routes } from "react-router-dom";
 import { db, renderWithProviders, tauri } from "@/test/harness";
 
 vi.mock("@/lib/db", async () => (await import("@/test/harness")).db.module);
@@ -196,6 +197,18 @@ describe("Students page", () => {
     expect(tauri.core.invoke).not.toHaveBeenCalledWith("save_binary_file", expect.anything());
     expect(screen.getByRole("dialog")).toBeInTheDocument(); // stays open
   });
+
+  it("hides the delete action for a teacher account", async () => {
+    const { StudentsPage } = await import("@/features/students/StudentsPage");
+    renderWithProviders(<StudentsPage />, { authUser: { id: 2, username: "obed", role: "teacher" } });
+
+    await screen.findAllByText("Amina Yakubu");
+    expect(screen.queryByRole("button", { name: /^delete$/i })).not.toBeInTheDocument();
+    expect(screen.queryAllByLabelText("Delete")).toHaveLength(0);
+    // still allowed: add/edit
+    expect(screen.getByRole("button", { name: /add student/i })).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Edit").length).toBeGreaterThan(0);
+  });
 });
 
 // ── Attendance ───────────────────────────────────────────────────────────────
@@ -257,6 +270,19 @@ describe("Results entry", () => {
       const insert = db.executed().find((s) => s.startsWith("INSERT INTO results"));
       expect(insert).toContain("ON CONFLICT(student_id, year_id, subject_id)");
     });
+  });
+
+  it("is read-only for a teacher account", async () => {
+    const { ResultsPage } = await import("@/features/results/ResultsPage");
+    renderWithProviders(<ResultsPage />, {
+      authUser: { id: 2, username: "obed", role: "teacher" },
+    });
+
+    const row = (await screen.findByText("Amina Yakubu")).closest("tr")!;
+    for (const input of within(row).getAllByRole("textbox")) {
+      expect(input).toHaveAttribute("readonly");
+    }
+    expect(screen.queryByRole("button", { name: /save results/i })).not.toBeInTheDocument();
   });
 
   it("only lists subjects that apply to the selected class", async () => {
@@ -540,6 +566,18 @@ describe("Teacher detail page", () => {
       expect(within(classRow).getByText("15")).toBeInTheDocument();
     });
   });
+
+  it("hides the edit action for a teacher account", async () => {
+    const { TeacherDetailPage } = await import("@/features/teachers/TeacherDetailPage");
+    renderWithProviders(<TeacherDetailPage />, {
+      route: "/teachers/1",
+      path: "/teachers/:id",
+      authUser: { id: 2, username: "obed", role: "teacher" },
+    });
+
+    expect(await screen.findByRole("heading", { name: "Ustadh Yusuf" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^edit$/i })).not.toBeInTheDocument();
+  });
 });
 
 // ── Fees (tuition ledger) ────────────────────────────────────────────────────
@@ -577,6 +615,19 @@ describe("Fees page", () => {
       const insert = db.executed().find((s) => s.startsWith("INSERT INTO fee_payments"));
       expect(insert).toBeTruthy();
     });
+  });
+
+  it("lets a teacher record a payment but not delete one", async () => {
+    const { FeesPage } = await import("@/features/fees/FeesPage");
+    renderWithProviders(<FeesPage />, {
+      authUser: { id: 2, username: "obed", role: "teacher" },
+    });
+
+    await userEvent.click(await screen.findByText("Amina Yakubu"));
+    const drawer = await screen.findByRole("dialog");
+
+    expect(within(drawer).getByRole("button", { name: /record payment/i })).toBeInTheDocument();
+    expect(within(drawer).queryByLabelText("Delete payment")).not.toBeInTheDocument();
   });
 });
 
@@ -771,5 +822,65 @@ describe("Backup page", () => {
         destPath: "/somewhere/mna-backup.db",
       });
     });
+  });
+});
+
+// ── Role-based navigation ────────────────────────────────────────────────────
+
+describe("Role-based navigation", () => {
+  it("hides Settings and Backup from a teacher's sidebar", async () => {
+    const { Sidebar } = await import("@/app/Sidebar");
+    renderWithProviders(<Sidebar collapsed={false} />, {
+      authUser: { id: 2, username: "obed", role: "teacher" },
+    });
+    expect(screen.queryByText("Settings")).not.toBeInTheDocument();
+    expect(screen.queryByText("Backup & Recovery")).not.toBeInTheDocument();
+    expect(screen.getByText("Students")).toBeInTheDocument();
+  });
+
+  it("shows Settings and Backup for an admin", async () => {
+    const { Sidebar } = await import("@/app/Sidebar");
+    renderWithProviders(<Sidebar collapsed={false} />);
+    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.getByText("Backup & Recovery")).toBeInTheDocument();
+  });
+
+  it("redirects a teacher away from an admin-only route", async () => {
+    const { RequireAdmin } = await import("@/features/auth/RequireAdmin");
+    renderWithProviders(
+      <Routes>
+        <Route
+          path="/settings"
+          element={
+            <RequireAdmin>
+              <div>SETTINGS PAGE</div>
+            </RequireAdmin>
+          }
+        />
+        <Route path="/dashboard" element={<div>DASHBOARD PAGE</div>} />
+      </Routes>,
+      { route: "/settings", authUser: { id: 2, username: "obed", role: "teacher" } },
+    );
+    expect(await screen.findByText("DASHBOARD PAGE")).toBeInTheDocument();
+    expect(screen.queryByText("SETTINGS PAGE")).not.toBeInTheDocument();
+  });
+
+  it("lets an admin through to an admin-only route", async () => {
+    const { RequireAdmin } = await import("@/features/auth/RequireAdmin");
+    renderWithProviders(
+      <Routes>
+        <Route
+          path="/settings"
+          element={
+            <RequireAdmin>
+              <div>SETTINGS PAGE</div>
+            </RequireAdmin>
+          }
+        />
+        <Route path="/dashboard" element={<div>DASHBOARD PAGE</div>} />
+      </Routes>,
+      { route: "/settings" },
+    );
+    expect(await screen.findByText("SETTINGS PAGE")).toBeInTheDocument();
   });
 });

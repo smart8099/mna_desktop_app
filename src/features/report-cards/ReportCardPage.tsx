@@ -7,6 +7,7 @@ import { Field } from "@/components/ui/Field";
 import { Select, Textarea } from "@/components/ui/Input";
 import { LoadingBlock } from "@/components/ui/State";
 import { YearSelect } from "@/components/ui/YearSelect";
+import { useIsAdmin } from "@/features/auth/AuthContext";
 import { cn } from "@/lib/cn";
 import { savePdf } from "@/lib/pdf";
 import { useNamedList, useSettings, useYearFilter } from "@/features/settings/api";
@@ -14,6 +15,7 @@ import { useClassGradebook, useSaveGeneralRemark } from "./api";
 import { ReportCard, type ReportCardData } from "./ReportCard";
 
 export function ReportCardPage() {
+  const isAdmin = useIsAdmin();
   const { data: settings } = useSettings();
   const { years, year, yearId, setYearId } = useYearFilter();
   const { data: classes = [] } = useNamedList("classes");
@@ -203,7 +205,7 @@ export function ReportCardPage() {
         <LoadingBlock />
       ) : mode === "single" ? (
         <>
-          {single && (
+          {single && isAdmin && (
             <div className="no-print rounded-xl border border-border bg-surface p-4">
               <Field label="Teacher's general remark">
                 <Textarea

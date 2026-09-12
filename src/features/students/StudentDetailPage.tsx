@@ -9,6 +9,7 @@ import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { Dialog } from "@/components/ui/Dialog";
 import { LoadingBlock } from "@/components/ui/State";
 import { YearSelect } from "@/components/ui/YearSelect";
+import { useIsAdmin } from "@/features/auth/AuthContext";
 import { cn } from "@/lib/cn";
 import { formatMoney, round2 } from "@/lib/money";
 import { useNamedList, useSettings, useYearFilter } from "@/features/settings/api";
@@ -27,6 +28,7 @@ import { ageFromDob, initials, nextYearAfter } from "./logic";
 import { StudentFormDrawer } from "./StudentFormDrawer";
 
 export function StudentDetailPage() {
+  const isAdmin = useIsAdmin();
   const { id: idParam } = useParams();
   const id = Number(idParam);
   const navigate = useNavigate();
@@ -170,7 +172,7 @@ export function StudentDetailPage() {
                     </span>
                     <BalanceStat label="Tuition" amount={b.tuition_balance} currency={currency} />
                     <BalanceStat label="Exam fee" amount={b.exam_balance} currency={currency} />
-                    {hasCredit && nextYear && (
+                    {hasCredit && isAdmin && nextYear && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -188,7 +190,7 @@ export function StudentDetailPage() {
                         {nextYear.hijri_label} AH
                       </Button>
                     )}
-                    {hasCredit && !nextYear && (
+                    {hasCredit && isAdmin && !nextYear && (
                       <span className="ml-auto text-xs text-text-muted">
                         No later academic year to apply this credit to yet.
                       </span>

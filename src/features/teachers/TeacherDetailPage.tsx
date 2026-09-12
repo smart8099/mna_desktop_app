@@ -5,11 +5,13 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/Badge";
 import { LoadingBlock, EmptyRow } from "@/components/ui/State";
+import { useIsAdmin } from "@/features/auth/AuthContext";
 import { initials } from "@/features/students/logic";
 import { useAllAssignments, useTeacher, useTeacherClassLoad } from "./api";
 import { TeacherFormDrawer } from "./TeacherFormDrawer";
 
 export function TeacherDetailPage() {
+  const isAdmin = useIsAdmin();
   const { id: idParam } = useParams();
   const id = Number(idParam);
 
@@ -53,10 +55,12 @@ export function TeacherDetailPage() {
           <ArrowLeft className="h-4 w-4" />
           Teachers
         </Link>
-        <Button variant="outline" onClick={() => setEditOpen(true)}>
-          <Pencil className="h-4 w-4" />
-          Edit
-        </Button>
+        {isAdmin && (
+          <Button variant="outline" onClick={() => setEditOpen(true)}>
+            <Pencil className="h-4 w-4" />
+            Edit
+          </Button>
+        )}
       </div>
 
       <Card>

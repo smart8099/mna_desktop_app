@@ -8,6 +8,7 @@ import { SearchInput } from "@/components/ui/SearchInput";
 import { Badge } from "@/components/ui/Badge";
 import { Pagination } from "@/components/ui/Pagination";
 import { LoadingBlock, ErrorBlock, EmptyRow } from "@/components/ui/State";
+import { useIsAdmin } from "@/features/auth/AuthContext";
 import { useDebounce } from "@/lib/useDebounce";
 import { usePagination } from "@/lib/usePagination";
 import { weightToPct } from "@/lib/format";
@@ -28,6 +29,7 @@ interface Draft {
 }
 
 export function ResultsPage() {
+  const isAdmin = useIsAdmin();
   const { data: year } = useCurrentYear();
   const { data: classes = [] } = useNamedList("classes");
   const grading = useGradingConfig();
@@ -231,6 +233,7 @@ export function ResultsPage() {
                       <Input
                         inputMode="decimal"
                         className="h-9"
+                        readOnly={!isAdmin}
                         value={drafts[r.student_id]?.ca ?? ""}
                         onChange={(e) => setDraft(r.student_id, { ca: e.target.value })}
                       />
@@ -239,6 +242,7 @@ export function ResultsPage() {
                       <Input
                         inputMode="decimal"
                         className="h-9"
+                        readOnly={!isAdmin}
                         value={drafts[r.student_id]?.exam ?? ""}
                         onChange={(e) => setDraft(r.student_id, { exam: e.target.value })}
                       />
@@ -254,6 +258,7 @@ export function ResultsPage() {
                       <Input
                         className="h-9"
                         placeholder="Optional"
+                        readOnly={!isAdmin}
                         value={drafts[r.student_id]?.remark ?? ""}
                         onChange={(e) => setDraft(r.student_id, { remark: e.target.value })}
                       />
@@ -273,12 +278,14 @@ export function ResultsPage() {
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-3">
-            {dirty && <span className="text-xs text-text-muted">Unsaved changes</span>}
-            <Button onClick={persist} loading={save.isPending} disabled={!dirty}>
-              Save results
-            </Button>
-          </div>
+          {isAdmin && (
+            <div className="flex items-center justify-end gap-3">
+              {dirty && <span className="text-xs text-text-muted">Unsaved changes</span>}
+              <Button onClick={persist} loading={save.isPending} disabled={!dirty}>
+                Save results
+              </Button>
+            </div>
+          )}
         </>
       )}
     </div>

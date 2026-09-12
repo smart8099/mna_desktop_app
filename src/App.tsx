@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Shell } from "./app/Shell";
 import { LoadingBlock } from "./components/ui/State";
+import { RequireAdmin } from "./features/auth/RequireAdmin";
 
 // Route-level code splitting: each page ships in its own chunk and only loads
 // when the user navigates to it, instead of all of them upfront in one bundle.
@@ -64,8 +65,22 @@ export default function App() {
           <Route path="/report-cards" element={<ReportCardPage />} />
           <Route path="/receipts" element={<ReceiptsPage />} />
 
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/backup" element={<BackupPage />} />
+          <Route
+            path="/settings"
+            element={
+              <RequireAdmin>
+                <SettingsPage />
+              </RequireAdmin>
+            }
+          />
+          <Route
+            path="/backup"
+            element={
+              <RequireAdmin>
+                <BackupPage />
+              </RequireAdmin>
+            }
+          />
 
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>

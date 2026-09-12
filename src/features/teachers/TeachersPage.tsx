@@ -8,6 +8,7 @@ import { StatusBadge } from "@/components/ui/Badge";
 import { Pagination } from "@/components/ui/Pagination";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { LoadingBlock, ErrorBlock } from "@/components/ui/State";
+import { useIsAdmin } from "@/features/auth/AuthContext";
 import { useDebounce } from "@/lib/useDebounce";
 import { usePagination } from "@/lib/usePagination";
 import {
@@ -19,6 +20,7 @@ import {
 import { TeacherFormDrawer } from "./TeacherFormDrawer";
 
 export function TeachersPage() {
+  const isAdmin = useIsAdmin();
   const { data: teachers, isLoading, error } = useTeachers();
   const { data: assignments = [] } = useAllAssignments();
   const del = useDeleteTeacher();
@@ -65,10 +67,12 @@ export function TeachersPage() {
             {teachers!.length} on record{filtered.length !== teachers!.length ? ` · ${filtered.length} shown` : ""}
           </p>
         </div>
-        <Button onClick={() => setDrawer("create")}>
-          <Plus className="h-4 w-4" />
-          Add teacher
-        </Button>
+        {isAdmin && (
+          <Button onClick={() => setDrawer("create")}>
+            <Plus className="h-4 w-4" />
+            Add teacher
+          </Button>
+        )}
       </div>
 
       <SearchInput value={q} onChange={setQ} placeholder="Search name, ID, contact, assignment…" />
@@ -123,24 +127,26 @@ export function TeachersPage() {
                       <StatusBadge status={t.status} />
                     </td>
                     <td className="px-3 py-2.5">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label="Edit"
-                          onClick={() => setDrawer(t)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label="Delete"
-                          onClick={() => setConfirmDelete(t)}
-                        >
-                          <Trash2 className="h-4 w-4 text-danger" />
-                        </Button>
-                      </div>
+                      {isAdmin && (
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label="Edit"
+                            onClick={() => setDrawer(t)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label="Delete"
+                            onClick={() => setConfirmDelete(t)}
+                          >
+                            <Trash2 className="h-4 w-4 text-danger" />
+                          </Button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );

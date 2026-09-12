@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { useIsAdmin } from "@/features/auth/AuthContext";
 import { toast } from "sonner";
 import {
   ArrowUpFromLine,
@@ -41,6 +42,7 @@ function Avatar({ row }: { row: StudentRow }) {
 }
 
 export function StudentsPage() {
+  const isAdmin = useIsAdmin();
   const { data: rows, isLoading, error } = useStudents();
   const { data: classes = [] } = useNamedList("classes");
   const promote = usePromoteStudents();
@@ -262,14 +264,16 @@ export function StudentsPage() {
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label="Delete"
-                          onClick={() => setConfirmDelete(r)}
-                        >
-                          <Trash2 className="h-4 w-4 text-danger" />
-                        </Button>
+                        {isAdmin && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label="Delete"
+                            onClick={() => setConfirmDelete(r)}
+                          >
+                            <Trash2 className="h-4 w-4 text-danger" />
+                          </Button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -318,10 +322,12 @@ export function StudentsPage() {
                         <Pencil className="h-3.5 w-3.5" />
                         Edit
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(r)}>
-                        <Trash2 className="h-3.5 w-3.5 text-danger" />
-                        Delete
-                      </Button>
+                      {isAdmin && (
+                        <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(r)}>
+                          <Trash2 className="h-3.5 w-3.5 text-danger" />
+                          Delete
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </div>
