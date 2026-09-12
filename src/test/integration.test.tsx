@@ -439,8 +439,8 @@ describe("Student detail page", () => {
         ? [{ amount_due: 40, amount_paid: 0, receipt_no: null, notes: null }]
         : [{ amount_due: 40, amount_paid: 40, receipt_no: "EX-0001", notes: null }],
     );
-    db.on(/s\.gender, cl\.name AS class_name FROM students s LEFT JOIN classes cl/i, () => [
-      { student_id: 1, student_code: "MNA-0001", full_name: "Amina Yakubu", gender: "Female", class_name: "Class 2" },
+    db.on(/FROM students s LEFT JOIN classes cl ON cl\.id = s\.class_id\s+WHERE s\.class_id = \?/i, () => [
+      { student_id: 1, student_code: "MNA-0001", full_name: "Amina Yakubu", gender: "Female", class_name: "Class 2", photo_path: null },
     ]);
     db.on(/FROM results r JOIN students s ON s\.id = r\.student_id WHERE s\.class_id/i, () => [
       { student_id: 1, subject_id: 10, ca_mark: 80, exam_mark: 80, teacher_remark: null },
@@ -822,6 +822,51 @@ describe("Backup page", () => {
         destPath: "/somewhere/mna-backup.db",
       });
     });
+  });
+});
+
+// ── Report Cards ─────────────────────────────────────────────────────────────
+
+describe("Report Cards", () => {
+  beforeEach(() => {
+    baseFixtures();
+    db.on(/FROM students s LEFT JOIN classes cl ON cl\.id = s\.class_id\s+WHERE s\.class_id = \?/i, () => [
+      { student_id: 1, student_code: "MNA-0001", full_name: "Amina Yakubu", gender: "Female", class_name: "Class 2", photo_path: "/photos/amina.png" },
+      { student_id: 2, student_code: "MNA-0002", full_name: "Bilal Osei", gender: "Male", class_name: "Class 2", photo_path: null },
+    ]);
+    db.on(/FROM results r JOIN students s ON s\.id = r\.student_id WHERE s\.class_id/i, () => [
+      { student_id: 1, subject_id: 10, ca_mark: 80, exam_mark: 80, teacher_remark: null },
+    ]);
+    db.on(/LEFT JOIN attendance a ON a\.student_id = s\.id AND a\.year_id/i, () => [
+      { student_id: 1, present: 10, absent: 2 },
+    ]);
+    db.on(/FROM report_card_remarks rc JOIN students s/i, () => []);
+  });
+
+  it("shows the student's photo when one exists", async () => {
+    const { ReportCardPage } = await import("@/features/report-cards/ReportCardPage");
+    renderWithProviders(<ReportCardPage />);
+
+    await screen.findByText("Amina Yakubu");
+    const box = screen.getByTestId("student-photo-box");
+    const img = box.querySelector("img");
+    expect(img).toBeTruthy();
+    expect(img!.src).toContain("test-asset://");
+    expect(img!.src).toContain("amina.png");
+  });
+
+  it("shows an empty photo box when the student has no photo", async () => {
+    const { ReportCardPage } = await import("@/features/report-cards/ReportCardPage");
+    renderWithProviders(<ReportCardPage />);
+
+    await screen.findByText("Amina Yakubu");
+    await userEvent.selectOptions(screen.getByLabelText("Student"), "2");
+
+    await waitFor(() => {
+      const card = document.querySelector(".report-card")!;
+      expect(within(card as HTMLElement).getByText("Bilal Osei")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("student-photo-box").querySelector("img")).toBeNull();
   });
 });
 

@@ -65,6 +65,7 @@ export function ReportCardPage() {
           student_code: entry.student_code,
           class_name: info?.class_name ?? null,
           gender: info?.gender ?? null,
+          photo_path: info?.photo_path ?? null,
         },
         entry,
         attendance: gb.attendanceMap.get(entry.student_id),

@@ -1,3 +1,4 @@
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { Logo } from "@/components/ui/Logo";
 import type { GradebookStudent } from "@/features/results/logic";
 
@@ -9,6 +10,7 @@ export interface ReportCardData {
     student_code: string;
     class_name: string | null;
     gender: string | null;
+    photo_path: string | null;
   };
   entry: GradebookStudent;
   attendance: { present: number; absent: number; pct: number | null } | undefined;
@@ -30,7 +32,18 @@ export function ReportCard({ data }: { data: ReportCardData }) {
           </p>
           <p className="text-xs text-slate-500">Academic Year {data.yearLabel}</p>
         </div>
-        <div className="h-16 w-16 shrink-0" />
+        <div
+          data-testid="student-photo-box"
+          className="h-16 w-16 shrink-0 overflow-hidden rounded border border-slate-300 bg-slate-50"
+        >
+          {data.student.photo_path && (
+            <img
+              src={convertFileSrc(data.student.photo_path)}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+          )}
+        </div>
       </header>
 
       <section className="mt-4 grid grid-cols-2 gap-x-8 gap-y-1">

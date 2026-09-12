@@ -10,6 +10,7 @@ export interface ClassStudent {
   full_name: string;
   gender: string | null;
   class_name: string | null;
+  photo_path: string | null;
 }
 
 interface RawResult {
@@ -50,7 +51,8 @@ export function useClassGradebook(
     enabled: classId != null,
     queryFn: () =>
       select<ClassStudent>(
-        `SELECT s.id AS student_id, s.student_code, s.full_name, s.gender, cl.name AS class_name
+        `SELECT s.id AS student_id, s.student_code, s.full_name, s.gender, cl.name AS class_name,
+                s.photo_path
          FROM students s LEFT JOIN classes cl ON cl.id = s.class_id
          WHERE s.class_id = ? AND s.status = 'Active'
          ORDER BY s.full_name COLLATE NOCASE`,

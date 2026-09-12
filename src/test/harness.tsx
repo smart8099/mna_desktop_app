@@ -13,8 +13,12 @@ export function createTauriMock() {
   );
   const open = vi.fn(async () => null as string | null);
   const save = vi.fn(async () => null as string | null);
+  // Every real photo_path in the app goes through this — a bare filesystem
+  // path is meaningless in jsdom, so this just needs to be callable and
+  // deterministic, not match Tauri's real asset:// URL scheme.
+  const convertFileSrc = vi.fn((path: string) => `test-asset://${path}`);
   return {
-    core: { invoke },
+    core: { invoke, convertFileSrc },
     dialog: { open, save },
     onInvoke(cmd: string, fn: (args?: unknown) => unknown) {
       handlers[cmd] = fn;
@@ -22,6 +26,7 @@ export function createTauriMock() {
     reset() {
       for (const k of Object.keys(handlers)) delete handlers[k];
       invoke.mockClear();
+      convertFileSrc.mockClear();
       open.mockReset().mockResolvedValue(null);
       save.mockReset().mockResolvedValue(null);
     },
