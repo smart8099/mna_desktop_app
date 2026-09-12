@@ -73,7 +73,7 @@ function AccountsCard() {
           <Field label="Username">
             <Input value={username} onChange={(e) => setUsername(e.target.value)} />
           </Field>
-          <Field label="Password" hint="At least 4 characters.">
+          <Field label="Password">
             <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
           </Field>
           <Field label="Role">
@@ -87,6 +87,7 @@ function AccountsCard() {
             Add account
           </Button>
         </div>
+        <p className="text-xs text-text-muted">Password must be at least 4 characters.</p>
       </CardBody>
     </Card>
   );
