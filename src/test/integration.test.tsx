@@ -98,6 +98,95 @@ describe("Students page", () => {
     expect(insertCall?.[1]).toContain("MNA-0004");
     expect(insertCall?.[1]).toContain("MNA4");
   });
+
+  function decodeCsv(b64: string): string {
+    const binary = atob(b64);
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    return new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes);
+  }
+
+  it("prints a register scoped to the active class filter, as CSV", async () => {
+    const { StudentsPage } = await import("@/features/students/StudentsPage");
+    renderWithProviders(<StudentsPage />);
+    await screen.findAllByText("Amina Yakubu");
+
+    // narrow to Class 1, which only Bilal belongs to
+    const [classFilter] = screen.getAllByRole("combobox");
+    await userEvent.selectOptions(classFilter, "1");
+    await waitFor(() => expect(screen.queryAllByText("Amina Yakubu")).toHaveLength(0));
+
+    await userEvent.click(screen.getByRole("button", { name: /print register/i }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Class 1 · 1 student")).toBeInTheDocument();
+
+    tauri.dialog.save.mockResolvedValueOnce("/tmp/register.csv");
+    await userEvent.click(within(dialog).getByRole("button", { name: "CSV" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: /^export$/i }));
+
+    await waitFor(() => expect(tauri.core.invoke).toHaveBeenCalledWith(
+      "save_binary_file",
+      expect.objectContaining({ destPath: "/tmp/register.csv" }),
+    ));
+    const [, args] = tauri.core.invoke.mock.calls.find((c) => c[0] === "save_binary_file") as [
+      string,
+      { dataB64: string },
+    ];
+    const csv = decodeCsv(args.dataB64);
+    expect(csv).toContain("Bilal Osei");
+    expect(csv).not.toContain("Amina Yakubu"); // filtered out by class
+    expect(csv).not.toContain("Zainab Adam");
+
+    // dialog closes and confirms on success
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("only exports the fields left checked, in whichever format is chosen", async () => {
+    const { StudentsPage } = await import("@/features/students/StudentsPage");
+    renderWithProviders(<StudentsPage />);
+    await screen.findAllByText("Amina Yakubu");
+
+    await userEvent.click(screen.getByRole("button", { name: /print register/i }));
+    const dialog = await screen.findByRole("dialog");
+
+    // Class is checked by default — uncheck it before exporting
+    await userEvent.click(within(dialog).getByLabelText("Class"));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Excel" }));
+
+    tauri.dialog.save.mockResolvedValueOnce("/tmp/register.xlsx");
+    await userEvent.click(within(dialog).getByRole("button", { name: /^export$/i }));
+
+    await waitFor(() => expect(tauri.core.invoke).toHaveBeenCalledWith(
+      "save_binary_file",
+      expect.objectContaining({ destPath: "/tmp/register.xlsx" }),
+    ));
+    const [, args] = tauri.core.invoke.mock.calls.find((c) => c[0] === "save_binary_file") as [
+      string,
+      { dataB64: string },
+    ];
+    const XLSX = await import("xlsx");
+    const book = XLSX.read(args.dataB64, { type: "base64" });
+    const [header] = XLSX.utils.sheet_to_json(book.Sheets[book.SheetNames[0]], {
+      header: 1,
+    }) as string[][];
+    expect(header).not.toContain("Class");
+    expect(header).toContain("Full Name");
+  });
+
+  it("does nothing if the save dialog is cancelled", async () => {
+    const { StudentsPage } = await import("@/features/students/StudentsPage");
+    renderWithProviders(<StudentsPage />);
+    await screen.findAllByText("Amina Yakubu");
+
+    await userEvent.click(screen.getByRole("button", { name: /print register/i }));
+    const dialog = await screen.findByRole("dialog");
+
+    tauri.dialog.save.mockResolvedValueOnce(null); // user cancels the native dialog
+    await userEvent.click(within(dialog).getByRole("button", { name: /^export$/i }));
+
+    await waitFor(() => expect(tauri.dialog.save).toHaveBeenCalled());
+    expect(tauri.core.invoke).not.toHaveBeenCalledWith("save_binary_file", expect.anything());
+    expect(screen.getByRole("dialog")).toBeInTheDocument(); // stays open
+  });
 });
 
 // ── Attendance ───────────────────────────────────────────────────────────────
