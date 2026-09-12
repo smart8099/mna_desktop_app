@@ -11,7 +11,7 @@ import { LoadingBlock, ErrorBlock, EmptyRow } from "@/components/ui/State";
 import { useDebounce } from "@/lib/useDebounce";
 import { usePagination } from "@/lib/usePagination";
 import { weightToPct } from "@/lib/format";
-import { useCurrentYear, useNamedList } from "@/features/settings/api";
+import { useCurrentYear, useNamedList, useSubjectsForClass } from "@/features/settings/api";
 import {
   clampMark,
   gradeFor,
@@ -30,7 +30,6 @@ interface Draft {
 export function ResultsPage() {
   const { data: year } = useCurrentYear();
   const { data: classes = [] } = useNamedList("classes");
-  const { data: subjects = [] } = useNamedList("subjects");
   const grading = useGradingConfig();
   const save = useSaveResults();
 
@@ -41,11 +40,22 @@ export function ResultsPage() {
   const [drafts, setDrafts] = useState<Record<number, Draft>>({});
   const [dirty, setDirty] = useState(false);
 
+  const { data: subjects = [] } = useSubjectsForClass(classId);
+
   useEffect(() => {
     if (classId == null && classes.length) setClassId(classes[0].id);
   }, [classes, classId]);
+  // Re-pick a subject whenever the class changes and the current one no
+  // longer applies to it (including the very first load); clear it entirely
+  // if this class has no subjects assigned at all.
   useEffect(() => {
-    if (subjectId == null && subjects.length) setSubjectId(subjects[0].id);
+    if (!subjects.length) {
+      if (subjectId != null) setSubjectId(null);
+      return;
+    }
+    if (subjectId == null || !subjects.some((s) => s.id === subjectId)) {
+      setSubjectId(subjects[0].id);
+    }
   }, [subjects, subjectId]);
 
   const { data: rows, isLoading, error } = useClassResults(classId, subjectId, year?.id ?? null);
@@ -161,8 +171,10 @@ export function ResultsPage() {
         <Field label="Subject" className="w-48">
           <Select
             value={subjectId ?? ""}
+            disabled={!subjects.length}
             onChange={(e) => setSubjectId(e.target.value ? Number(e.target.value) : null)}
           >
+            {subjects.length === 0 && <option value="">No subjects</option>}
             {subjects.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
@@ -180,6 +192,10 @@ export function ResultsPage() {
         <LoadingBlock />
       ) : error ? (
         <ErrorBlock error={error} />
+      ) : !subjects.length ? (
+        <EmptyRow>
+          No subjects apply to this class yet — add some in Settings → Subjects.
+        </EmptyRow>
       ) : !computed.length ? (
         <EmptyRow>No active students in this class.</EmptyRow>
       ) : (

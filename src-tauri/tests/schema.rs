@@ -8,12 +8,14 @@ use rusqlite::{params, Connection};
 const INIT_SQL: &str = include_str!("../migrations/0001_init.sql");
 const PHASE2_SQL: &str = include_str!("../migrations/0002_phase2.sql");
 const PHASE3_SQL: &str = include_str!("../migrations/0003_indexes.sql");
+const PHASE4_SQL: &str = include_str!("../migrations/0004_subject_classes.sql");
 
 fn db() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch(INIT_SQL).unwrap();
     conn.execute_batch(PHASE2_SQL).unwrap();
     conn.execute_batch(PHASE3_SQL).unwrap();
+    conn.execute_batch(PHASE4_SQL).unwrap();
     conn.pragma_update(None, "foreign_keys", true).unwrap();
     conn
 }
@@ -29,9 +31,9 @@ fn migration_creates_every_expected_table() {
     let conn = db();
     let expected = [
         "meta", "settings", "academic_years", "academic_calendar", "classes",
-        "subjects", "weight_overrides", "students", "student_enrollments", "teachers",
-        "teacher_assignments", "attendance", "fee_charges", "fee_payments", "exam_fees",
-        "results", "report_card_remarks", "users", "audit_log",
+        "subjects", "subject_classes", "weight_overrides", "students", "student_enrollments",
+        "teachers", "teacher_assignments", "attendance", "fee_charges", "fee_payments",
+        "exam_fees", "results", "report_card_remarks", "users", "audit_log",
     ];
     for t in expected {
         let n = scalar_i64(
@@ -75,8 +77,45 @@ fn seed_data_matches_the_spreadsheet() {
             |r| r.get(0)
         )
         .unwrap(),
-        "3"
+        "4"
     );
+}
+
+#[test]
+fn phase_4_migration_seeds_every_subject_against_every_class() {
+    let conn = db();
+    let classes = scalar_i64(&conn, "SELECT COUNT(*) FROM classes");
+    let subjects = scalar_i64(&conn, "SELECT COUNT(*) FROM subjects");
+    let links = scalar_i64(&conn, "SELECT COUNT(*) FROM subject_classes");
+    assert_eq!(links, classes * subjects, "every subject should start applying to every class");
+}
+
+#[test]
+fn a_subject_can_be_restricted_to_a_specific_set_of_classes() {
+    let conn = db();
+    conn.execute("DELETE FROM subject_classes WHERE subject_id = 1", [])
+        .unwrap();
+    conn.execute(
+        "INSERT INTO subject_classes (subject_id, class_id) VALUES (1, 3)",
+        [],
+    )
+    .unwrap();
+    let n = scalar_i64(
+        &conn,
+        "SELECT COUNT(*) FROM subject_classes WHERE subject_id = 1",
+    );
+    assert_eq!(n, 1);
+}
+
+#[test]
+fn deleting_a_class_cascades_out_of_subject_classes() {
+    let conn = db();
+    conn.execute("DELETE FROM classes WHERE id = 1", []).unwrap();
+    let n = scalar_i64(
+        &conn,
+        "SELECT COUNT(*) FROM subject_classes WHERE class_id = 1",
+    );
+    assert_eq!(n, 0);
 }
 
 #[test]

@@ -59,8 +59,16 @@ export function useClassGradebook(
   });
 
   const subjects = useQuery({
-    queryKey: ["subjects"],
-    queryFn: () => select<{ id: number; name: string }>("SELECT id, name FROM subjects ORDER BY sort_order, name"),
+    queryKey: ["subjects-for-class", classId],
+    enabled: classId != null,
+    queryFn: () =>
+      select<{ id: number; name: string }>(
+        `SELECT s.id, s.name FROM subjects s
+         JOIN subject_classes sc ON sc.subject_id = s.id
+         WHERE sc.class_id = ?
+         ORDER BY s.sort_order, s.name`,
+        [classId],
+      ),
   });
 
   const results = useQuery({

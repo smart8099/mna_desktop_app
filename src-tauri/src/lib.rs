@@ -28,6 +28,12 @@ fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0003_indexes.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 4,
+            description: "per-class subject applicability",
+            sql: include_str!("../migrations/0004_subject_classes.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }
 

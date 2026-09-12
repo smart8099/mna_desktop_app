@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { execute, select, selectOne } from "@/lib/db";
+import { execute, executeBatch, select, selectOne, type BatchStatement } from "@/lib/db";
 
 // ── types ──────────────────────────────────────────────────────────────────
 
@@ -310,6 +310,68 @@ export function useDeleteNamed(table: ListTable) {
       return execute(`DELETE FROM ${table} WHERE id = ?`, [id]);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: [table] }),
+  });
+}
+
+// ── per-class subject applicability ─────────────────────────────────────────
+
+/** The subjects that apply to one class — for Results entry and the gradebook. */
+export function useSubjectsForClass(classId: number | null) {
+  return useQuery({
+    queryKey: ["subjects-for-class", classId],
+    enabled: classId != null,
+    queryFn: () =>
+      select<NamedRow>(
+        `SELECT s.id, s.name, s.sort_order FROM subjects s
+         JOIN subject_classes sc ON sc.subject_id = s.id
+         WHERE sc.class_id = ?
+         ORDER BY s.sort_order, s.name`,
+        [classId],
+      ),
+  });
+}
+
+export interface SubjectWithClasses extends NamedRow {
+  class_ids: number[];
+}
+
+/** Every subject with the ids of the classes it currently applies to — for the Settings checklist UI. */
+export function useSubjectsWithClasses() {
+  return useQuery({
+    queryKey: ["subjects-with-classes"],
+    queryFn: async () => {
+      const [subjects, links] = await Promise.all([
+        select<NamedRow>("SELECT * FROM subjects ORDER BY sort_order, name"),
+        select<{ subject_id: number; class_id: number }>(
+          "SELECT subject_id, class_id FROM subject_classes",
+        ),
+      ]);
+      const bySubject = new Map<number, number[]>();
+      for (const l of links) {
+        const arr = bySubject.get(l.subject_id);
+        if (arr) arr.push(l.class_id);
+        else bySubject.set(l.subject_id, [l.class_id]);
+      }
+      return subjects.map((s): SubjectWithClasses => ({ ...s, class_ids: bySubject.get(s.id) ?? [] }));
+    },
+  });
+}
+
+/** Replaces the full set of classes a subject applies to. */
+export function useSetSubjectClasses() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ subjectId, classIds }: { subjectId: number; classIds: number[] }) => {
+      const statements: BatchStatement[] = [
+        { sql: "DELETE FROM subject_classes WHERE subject_id = ?", params: [subjectId] },
+        ...classIds.map((classId) => ({
+          sql: "INSERT INTO subject_classes (subject_id, class_id) VALUES (?, ?)",
+          params: [subjectId, classId],
+        })),
+      ];
+      await executeBatch(statements);
+    },
+    onSuccess: () => qc.invalidateQueries(),
   });
 }
 

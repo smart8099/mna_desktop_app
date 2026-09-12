@@ -6,6 +6,7 @@ import { WeightOverridesSection } from "./WeightOverridesSection";
 import { AcademicYearsSection } from "./AcademicYearsSection";
 import { CalendarSection } from "./CalendarSection";
 import { ListEditorSection } from "./ListEditorSection";
+import { SubjectsSection } from "./SubjectsSection";
 
 const TABS = [
   { id: "school", label: "School" },
@@ -63,14 +64,7 @@ export function SettingsPage() {
           singular="class"
         />
       )}
-      {tab === "subjects" && (
-        <ListEditorSection
-          table="subjects"
-          title="Subjects"
-          description="Subjects taught across all classes. Used for results and report cards."
-          singular="subject"
-        />
-      )}
+      {tab === "subjects" && <SubjectsSection />}
     </div>
   );
 }

@@ -29,6 +29,10 @@ function baseFixtures() {
   db.on(/SELECT \* FROM classes/i, () => CLASSES);
   db.on(/SELECT id, name FROM subjects/i, () => SUBJECTS);
   db.on(/FROM subjects ORDER BY sort_order/i, () => SUBJECTS);
+  // useSubjectsForClass() / the gradebook's per-class subject list — every
+  // fixture subject applies to every class by default, matching how a fresh
+  // subject_classes table would look right after the migration seeds it.
+  db.on(/subjects s\s+JOIN subject_classes sc/i, () => SUBJECTS);
   db.on(/SELECT \* FROM settings WHERE id = 1/i, () => [SETTINGS]);
   db.on(/FROM academic_years WHERE is_current = 1/i, () => [YEAR]);
   // useYearFilter() resolves the selected year's label etc. by looking it up
@@ -253,6 +257,36 @@ describe("Results entry", () => {
       const insert = db.executed().find((s) => s.startsWith("INSERT INTO results"));
       expect(insert).toContain("ON CONFLICT(student_id, year_id, subject_id)");
     });
+  });
+
+  it("only lists subjects that apply to the selected class", async () => {
+    // Class 1 only has Quran; Class 2 also has Tajweed.
+    db.on(/subjects s\s+JOIN subject_classes sc/i, (_sql, params) =>
+      params[0] === 2
+        ? [
+            { id: 10, name: "Quran", sort_order: 1 },
+            { id: 11, name: "Tajweed", sort_order: 2 },
+          ]
+        : [{ id: 10, name: "Quran", sort_order: 1 }],
+    );
+
+    const { ResultsPage } = await import("@/features/results/ResultsPage");
+    renderWithProviders(<ResultsPage />);
+    await screen.findByText("Amina Yakubu");
+
+    const subjectSelect = screen.getByLabelText("Subject") as HTMLSelectElement;
+    expect(within(subjectSelect).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "Quran",
+    ]);
+
+    await userEvent.selectOptions(screen.getByLabelText("Class"), "2");
+
+    await waitFor(() =>
+      expect(within(subjectSelect).getAllByRole("option").map((o) => o.textContent)).toEqual([
+        "Quran",
+        "Tajweed",
+      ]),
+    );
   });
 });
 
@@ -596,6 +630,38 @@ describe("Settings — weight overrides", () => {
       const insert = db.executed().find((s) => s.startsWith("INSERT INTO weight_overrides"));
       expect(insert).toContain("ON CONFLICT(scope, ref_id)");
     });
+  });
+});
+
+describe("Settings — subjects", () => {
+  beforeEach(() => {
+    baseFixtures();
+    db.on(/SELECT \* FROM subjects ORDER BY sort_order, name/i, () => [
+      { id: 10, name: "Quran", sort_order: 1 },
+    ]);
+    // Quran currently applies to Class 1 only (of the 2 fixture classes).
+    db.on(/SELECT subject_id, class_id FROM subject_classes/i, () => [
+      { subject_id: 10, class_id: 1 },
+    ]);
+  });
+
+  it("updates which classes a subject applies to", async () => {
+    const { SubjectsSection } = await import("@/features/settings/SubjectsSection");
+    renderWithProviders(<SubjectsSection />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /1 of 2 classes/i }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText("Class 1")).toBeChecked();
+    expect(within(dialog).getByLabelText("Class 2")).not.toBeChecked();
+
+    await userEvent.click(within(dialog).getByLabelText("Class 2"));
+    await userEvent.click(within(dialog).getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      expect(db.executed()).toContain("DELETE FROM subject_classes WHERE subject_id = ?");
+    });
+    const inserts = db.executed().filter((s) => s.startsWith("INSERT INTO subject_classes"));
+    expect(inserts).toHaveLength(2); // Class 1 (kept) + Class 2 (newly checked)
   });
 });
 
