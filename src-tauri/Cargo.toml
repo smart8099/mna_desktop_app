@@ -1,6 +1,6 @@
 [package]
 name = "mna-management-system"
-version = "0.1.0"
+version = "0.1.1"
 description = "MNA Management System — Madrasatul Nurul Absar"
 authors = ["MNA"]
 edition = "2021"
