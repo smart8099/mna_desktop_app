@@ -665,6 +665,55 @@ describe("Settings — subjects", () => {
   });
 });
 
+describe("Settings — security", () => {
+  beforeEach(() => {
+    baseFixtures();
+    db.on(/SELECT id, username, role, created_at FROM users/i, () => [
+      { id: 1, username: "test-admin", role: "admin", created_at: "2026-01-01" },
+    ]);
+  });
+
+  it("creates a teacher account", async () => {
+    tauri.onInvoke("create_user", () => undefined);
+    const { SecuritySection } = await import("@/features/settings/SecuritySection");
+    renderWithProviders(<SecuritySection />);
+
+    await screen.findByText("test-admin");
+    await userEvent.type(screen.getByLabelText("Username"), "yusuf");
+    await userEvent.type(screen.getByLabelText("Password"), "secret1");
+    // Role select defaults to "teacher" already.
+    await userEvent.click(screen.getByRole("button", { name: /add account/i }));
+
+    await waitFor(() =>
+      expect(tauri.core.invoke).toHaveBeenCalledWith("create_user", {
+        username: "yusuf",
+        password: "secret1",
+        role: "teacher",
+      }),
+    );
+  });
+
+  it("changes the signed-in user's own password", async () => {
+    tauri.onInvoke("change_password", () => undefined);
+    const { SecuritySection } = await import("@/features/settings/SecuritySection");
+    renderWithProviders(<SecuritySection />);
+
+    await screen.findByText(/signed in as test-admin/i);
+    await userEvent.type(screen.getByLabelText("Current password"), "old-pass");
+    await userEvent.type(screen.getByLabelText("New password"), "new-secret");
+    await userEvent.type(screen.getByLabelText("Confirm new password"), "new-secret");
+    await userEvent.click(screen.getByRole("button", { name: /change password/i }));
+
+    await waitFor(() =>
+      expect(tauri.core.invoke).toHaveBeenCalledWith("change_password", {
+        userId: 1,
+        currentPassword: "old-pass",
+        newPassword: "new-secret",
+      }),
+    );
+  });
+});
+
 // ── Students: promotion ─────────────────────────────────────────────────────
 
 describe("Students — promotion", () => {

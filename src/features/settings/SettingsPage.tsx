@@ -7,6 +7,7 @@ import { AcademicYearsSection } from "./AcademicYearsSection";
 import { CalendarSection } from "./CalendarSection";
 import { ListEditorSection } from "./ListEditorSection";
 import { SubjectsSection } from "./SubjectsSection";
+import { SecuritySection } from "./SecuritySection";
 
 const TABS = [
   { id: "school", label: "School" },
@@ -16,6 +17,7 @@ const TABS = [
   { id: "calendar", label: "Calendar" },
   { id: "classes", label: "Classes" },
   { id: "subjects", label: "Subjects" },
+  { id: "security", label: "Security" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -65,6 +67,7 @@ export function SettingsPage() {
         />
       )}
       {tab === "subjects" && <SubjectsSection />}
+      {tab === "security" && <SecuritySection />}
     </div>
   );
 }
