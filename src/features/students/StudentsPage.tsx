@@ -2,7 +2,15 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { toast } from "sonner";
-import { ArrowUpFromLine, Pencil, Plus, Trash2, Upload, UserRound } from "lucide-react";
+import {
+  ArrowUpFromLine,
+  Pencil,
+  Plus,
+  Printer,
+  Trash2,
+  Upload,
+  UserRound,
+} from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Input";
 import { SearchInput } from "@/components/ui/SearchInput";
@@ -18,6 +26,7 @@ import { filterStudents, initials, promotionTarget, suggestedAdmissionNo } from 
 import { STUDENT_STATUSES, type StudentRow } from "./types";
 import { StudentFormDrawer } from "./StudentFormDrawer";
 import { ImportDrawer } from "./ImportDrawer";
+import { PrintRegisterDialog } from "./PrintRegisterDialog";
 
 function Avatar({ row }: { row: StudentRow }) {
   return (
@@ -47,6 +56,7 @@ export function StudentsPage() {
     null,
   );
   const [importOpen, setImportOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<StudentRow | null>(null);
   const [confirmPromote, setConfirmPromote] = useState(false);
 
@@ -69,6 +79,16 @@ export function StudentsPage() {
     () => filtered.filter((r) => selected.has(r.id)),
     [filtered, selected],
   );
+
+  const scopeLabel = useMemo(() => {
+    const parts: string[] = [];
+    parts.push(
+      classId === "all" ? "All classes" : (classes.find((c) => c.id === classId)?.name ?? "Class"),
+    );
+    if (status !== "all") parts.push(status);
+    if (debouncedQ.trim()) parts.push(`"${debouncedQ.trim()}"`);
+    return parts.join(" · ");
+  }, [classId, classes, status, debouncedQ]);
   const promotable = selectedRows.filter((r) => promotionTarget(r.class_id, classes)).length;
 
   function toggle(id: number) {
@@ -107,6 +127,10 @@ export function StudentsPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setPrintOpen(true)}>
+            <Printer className="h-4 w-4" />
+            Print register
+          </Button>
           <Button variant="outline" onClick={() => setImportOpen(true)}>
             <Upload className="h-4 w-4" />
             Import
@@ -323,6 +347,12 @@ export function StudentsPage() {
         onClose={() => setDrawer(null)}
       />
       <ImportDrawer open={importOpen} onClose={() => setImportOpen(false)} />
+      <PrintRegisterDialog
+        open={printOpen}
+        onClose={() => setPrintOpen(false)}
+        rows={filtered}
+        scopeLabel={scopeLabel}
+      />
 
       <Dialog
         open={confirmDelete != null}
