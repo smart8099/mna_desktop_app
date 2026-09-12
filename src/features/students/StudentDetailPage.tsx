@@ -1,25 +1,29 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { toast } from "sonner";
 import { ArrowLeft, CalendarCheck, FileText, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
+import { Dialog } from "@/components/ui/Dialog";
 import { LoadingBlock } from "@/components/ui/State";
 import { YearSelect } from "@/components/ui/YearSelect";
 import { cn } from "@/lib/cn";
-import { formatMoney } from "@/lib/money";
+import { formatMoney, round2 } from "@/lib/money";
 import { useNamedList, useSettings, useYearFilter } from "@/features/settings/api";
 import { balance, paymentStatus, PAYMENT_STATUS_LABEL } from "@/features/fees/logic";
 import { useStudentLedger } from "@/features/fees/api";
 import { useClassGradebook } from "@/features/report-cards/api";
 import {
+  useApplyExamFeeCredit,
   useStudent,
   useStudentAttendance,
   useStudentEnrollments,
   useStudentExamFee,
+  useStudentYearBalances,
 } from "./api";
-import { ageFromDob, initials } from "./logic";
+import { ageFromDob, initials, nextYearAfter } from "./logic";
 import { StudentFormDrawer } from "./StudentFormDrawer";
 
 export function StudentDetailPage() {
@@ -42,8 +46,16 @@ export function StudentDetailPage() {
     includeAttendance: false,
   });
   const perf = gb.gradebook.find((g) => g.student_id === id) ?? null;
+  const yearBalances = useStudentYearBalances(id);
+  const applyCredit = useApplyExamFeeCredit();
 
   const [editOpen, setEditOpen] = useState(false);
+  const [creditConfirm, setCreditConfirm] = useState<{
+    fromYearId: number;
+    fromYearLabel: string;
+    toYear: { id: number; hijri_label: string; gregorian_label: string };
+    amount: number;
+  } | null>(null);
 
   const currency = settings?.currency ?? "GH₵";
 
@@ -128,6 +140,65 @@ export function StudentDetailPage() {
           <Fact label="Academic year" value={year ? `${year.hijri_label} AH` : "—"} />
           <Fact label="Status" value={student.status} />
         </div>
+      </Card>
+
+      {/* balances across every year — so a debt carried from a past year, or
+          into a future one, is visible without switching the year filter */}
+      <Card>
+        <CardHeader
+          title="Balances across years"
+          description="Tuition and examination fee balances for every academic year on record."
+        />
+        <CardBody className="p-0">
+          {yearBalances.isLoading ? (
+            <LoadingBlock />
+          ) : yearBalances.balances.length === 0 ? (
+            <p className="px-5 py-6 text-sm text-text-muted">No fee activity recorded yet.</p>
+          ) : (
+            <ul className="divide-y divide-border">
+              {yearBalances.balances.map((b) => {
+                const nextYear = nextYearAfter(years, b.year_id);
+                const hasCredit = b.exam_balance < 0;
+                return (
+                  <li
+                    key={b.year_id}
+                    className="flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-3 text-sm"
+                  >
+                    <span className="flex min-w-[9rem] items-center gap-2 font-medium text-text">
+                      {b.hijri_label} AH
+                      {b.is_current === 1 && <Badge tone="green">Current</Badge>}
+                    </span>
+                    <BalanceStat label="Tuition" amount={b.tuition_balance} currency={currency} />
+                    <BalanceStat label="Exam fee" amount={b.exam_balance} currency={currency} />
+                    {hasCredit && nextYear && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="ml-auto"
+                        onClick={() =>
+                          setCreditConfirm({
+                            fromYearId: b.year_id,
+                            fromYearLabel: `${b.hijri_label} AH`,
+                            toYear: nextYear,
+                            amount: round2(-b.exam_balance),
+                          })
+                        }
+                      >
+                        Apply {formatMoney(-b.exam_balance, currency)} credit to{" "}
+                        {nextYear.hijri_label} AH
+                      </Button>
+                    )}
+                    {hasCredit && !nextYear && (
+                      <span className="ml-auto text-xs text-text-muted">
+                        No later academic year to apply this credit to yet.
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </CardBody>
       </Card>
 
       <div className="grid gap-5 lg:grid-cols-2">
@@ -351,7 +422,70 @@ export function StudentDetailPage() {
         suggestedAdmissionNo=""
         onClose={() => setEditOpen(false)}
       />
+
+      <Dialog
+        open={creditConfirm != null}
+        onClose={() => setCreditConfirm(null)}
+        title="Apply credit to the next year?"
+        description={
+          creditConfirm
+            ? `${formatMoney(creditConfirm.amount, currency)} overpaid in ${creditConfirm.fromYearLabel} will move to ${creditConfirm.toYear.hijri_label} AH · ${creditConfirm.toYear.gregorian_label}. This is recorded as a note on both years' exam fee records.`
+            : ""
+        }
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setCreditConfirm(null)}>
+              Cancel
+            </Button>
+            <Button
+              loading={applyCredit.isPending}
+              onClick={async () => {
+                if (!creditConfirm) return;
+                try {
+                  await applyCredit.mutateAsync({
+                    studentId: id,
+                    fromYearId: creditConfirm.fromYearId,
+                    fromYearLabel: creditConfirm.fromYearLabel,
+                    toYearId: creditConfirm.toYear.id,
+                    toYearLabel: `${creditConfirm.toYear.hijri_label} AH`,
+                    amount: creditConfirm.amount,
+                    standardFee: examDue,
+                    noteAmount: formatMoney(creditConfirm.amount, currency),
+                  });
+                  toast.success("Credit applied.");
+                  setCreditConfirm(null);
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : "Could not apply the credit.");
+                }
+              }}
+            >
+              Apply credit
+            </Button>
+          </>
+        }
+      />
     </div>
+  );
+}
+
+function BalanceStat({
+  label,
+  amount,
+  currency,
+}: {
+  label: string;
+  amount: number;
+  currency: string;
+}) {
+  const tone = amount > 0 ? "text-danger" : amount < 0 ? "text-primary" : "text-text-muted";
+  const suffix = amount > 0 ? "owing" : amount < 0 ? "credit" : "settled";
+  return (
+    <span className="text-text-muted">
+      {label}:{" "}
+      <span className={cn("font-medium", tone)}>
+        {formatMoney(Math.abs(amount), currency)} {suffix}
+      </span>
+    </span>
   );
 }
 

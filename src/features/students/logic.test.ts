@@ -5,10 +5,12 @@ import {
   admissionFromCode,
   ageFromDob,
   allocateCodes,
+  computeYearBalances,
   filterStudents,
   initials,
   maxCodeNumber,
   nextCode,
+  nextYearAfter,
   planImport,
   promotionTarget,
   STUDENT_CODE_WIDTH,
@@ -16,6 +18,7 @@ import {
   suggestedAdmissionNo,
   TEACHER_CODE_WIDTH,
   TEACHER_PREFIX,
+  type YearFeeTotals,
 } from "./logic";
 
 const classes: NamedRow[] = [
@@ -168,3 +171,69 @@ function imp(partial: Partial<ImportedStudent>): ImportedStudent {
     ...partial,
   };
 }
+
+function yearTotals(partial: Partial<YearFeeTotals>): YearFeeTotals {
+  return {
+    year_id: 1,
+    hijri_label: "1448",
+    gregorian_label: "2026/2027",
+    is_current: 0,
+    tuition_due: 0,
+    tuition_paid: 0,
+    exam_due: 0,
+    exam_paid: 0,
+    ...partial,
+  };
+}
+
+describe("computeYearBalances", () => {
+  it("computes tuition, exam and total balances", () => {
+    const [row] = computeYearBalances([
+      yearTotals({ tuition_due: 50, tuition_paid: 20, exam_due: 40, exam_paid: 40 }),
+    ]);
+    expect(row.tuition_balance).toBe(30); // owing
+    expect(row.exam_balance).toBe(0); // settled
+    expect(row.total_balance).toBe(30);
+  });
+
+  it("represents an overpayment as a negative balance", () => {
+    const [row] = computeYearBalances([yearTotals({ exam_due: 10, exam_paid: 15 })]);
+    expect(row.exam_balance).toBe(-5);
+  });
+
+  it("drops years with no fee activity at all (e.g. before enrollment)", () => {
+    const rows = computeYearBalances([
+      yearTotals({ year_id: 1 }), // all zero
+      yearTotals({ year_id: 2, exam_due: 10 }),
+    ]);
+    expect(rows.map((r) => r.year_id)).toEqual([2]);
+  });
+
+  it("keeps a year with only payments and no due (fully-credited edge case)", () => {
+    const rows = computeYearBalances([yearTotals({ year_id: 1, tuition_paid: 5 })]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].tuition_balance).toBe(-5);
+  });
+});
+
+describe("nextYearAfter", () => {
+  const years = [
+    { id: 1, gregorian_label: "2026/2027" },
+    { id: 2, gregorian_label: "2025/2026" },
+    { id: 3, gregorian_label: "2024/2025" },
+  ];
+
+  it("finds the chronologically next year by label, not by id", () => {
+    // id order here is deliberately NOT chronological (id 3 is the oldest)
+    expect(nextYearAfter(years, 3)?.id).toBe(2);
+    expect(nextYearAfter(years, 2)?.id).toBe(1);
+  });
+
+  it("returns null for the most recent year", () => {
+    expect(nextYearAfter(years, 1)).toBeNull();
+  });
+
+  it("returns null for a year id that isn't in the list", () => {
+    expect(nextYearAfter(years, 999)).toBeNull();
+  });
+});

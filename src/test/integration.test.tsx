@@ -429,6 +429,50 @@ describe("Student detail page", () => {
     );
     expect(await screen.findByText("Unpaid")).toBeInTheDocument();
   });
+
+  it("shows balances across years and applies an exam-fee credit forward", async () => {
+    db.on(/FROM academic_years ORDER BY is_current DESC/i, () => [
+      { id: 1, hijri_label: "1448", gregorian_label: "2026/2027", is_current: 1, start_date: null, end_date: null },
+      { id: 2, hijri_label: "1447", gregorian_label: "2025/2026", is_current: 0, start_date: null, end_date: null },
+    ]);
+    // Year 2 (older, per gregorian_label) overpaid its exam fee by 5; year 1
+    // (current, the chronologically-next year) still owes its full 10.
+    db.on(/ay\.id AS year_id/i, () => [
+      { year_id: 2, hijri_label: "1447", gregorian_label: "2025/2026", is_current: 0, tuition_due: 0, tuition_paid: 0, exam_due: 10, exam_paid: 15 },
+      { year_id: 1, hijri_label: "1448", gregorian_label: "2026/2027", is_current: 1, tuition_due: 0, tuition_paid: 0, exam_due: 10, exam_paid: 0 },
+    ]);
+
+    const { StudentDetailPage } = await import("@/features/students/StudentDetailPage");
+    renderWithProviders(<StudentDetailPage />, { route: "/students/1", path: "/students/:id" });
+    await screen.findAllByText("Amina Yakubu");
+
+    const balancesHeading = await screen.findByRole("heading", { name: "Balances across years" });
+    const balancesCard = balancesHeading.closest(".rounded-xl") as HTMLElement;
+    // (?!\s+to) excludes the "Apply GH₵ 5.00 credit to 1448 AH" button, which
+    // shares the same substring as the balance stat sitting next to it.
+    const pastRow = within(balancesCard).getByText("1447 AH").closest("li") as HTMLElement;
+    expect(within(pastRow).getByText(/GH₵ 5\.00 credit(?!\s+to)/)).toBeInTheDocument();
+    const currentRow = within(balancesCard).getByText("1448 AH").closest("li") as HTMLElement;
+    expect(within(currentRow).getByText(/GH₵ 10\.00 owing/)).toBeInTheDocument();
+
+    await userEvent.click(
+      within(pastRow).getByRole("button", { name: /apply gh₵ 5\.00 credit to 1448 ah/i }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText(/GH₵ 5\.00 overpaid in 1447 AH will move to 1448 AH/i),
+    ).toBeInTheDocument();
+
+    await userEvent.click(within(dialog).getByRole("button", { name: /apply credit/i }));
+
+    await waitFor(() => {
+      const update = db.executed().find((s) => s.startsWith("UPDATE exam_fees"));
+      const insert = db.executed().find((s) => s.startsWith("INSERT INTO exam_fees"));
+      expect(update).toBeTruthy();
+      expect(insert).toContain("ON CONFLICT(student_id, year_id)");
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
 });
 
 // ── Teacher detail ───────────────────────────────────────────────────────────

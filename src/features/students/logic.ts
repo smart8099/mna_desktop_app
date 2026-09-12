@@ -1,3 +1,4 @@
+import { round2 } from "@/lib/money";
 import type { NamedRow } from "@/features/settings/api";
 import type { ImportedStudent, StudentRow } from "./types";
 
@@ -94,6 +95,57 @@ export function ageFromDob(dob: string | null | undefined, now: Date = new Date(
   const monthDiff = now.getMonth() - d.getMonth();
   if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < d.getDate())) age -= 1;
   return age >= 0 && age < 130 ? age : null;
+}
+
+// ── fee balances across every academic year ─────────────────────────────────
+
+export interface YearFeeTotals {
+  year_id: number;
+  hijri_label: string;
+  gregorian_label: string;
+  is_current: number;
+  tuition_due: number;
+  tuition_paid: number;
+  exam_due: number;
+  exam_paid: number;
+}
+
+export interface YearBalanceRow extends YearFeeTotals {
+  tuition_balance: number; // > 0 owing, < 0 overpaid
+  exam_balance: number;
+  total_balance: number;
+}
+
+/**
+ * Adds computed balances and drops any year with no fee activity at all
+ * (e.g. a year before the student was enrolled). Kept separate from the
+ * query so it's cheaply unit-testable.
+ */
+export function computeYearBalances(rows: YearFeeTotals[]): YearBalanceRow[] {
+  return rows
+    .map((r) => ({
+      ...r,
+      tuition_balance: round2(r.tuition_due - r.tuition_paid),
+      exam_balance: round2(r.exam_due - r.exam_paid),
+      total_balance: round2(r.tuition_due - r.tuition_paid + (r.exam_due - r.exam_paid)),
+    }))
+    .filter((r) => r.tuition_due || r.tuition_paid || r.exam_due || r.exam_paid);
+}
+
+/**
+ * The year to carry an overpayment into: the next one chronologically after
+ * `fromYearId`, by gregorian_label — not by id, since ids aren't necessarily
+ * assigned in year order (e.g. a future year can be created before the one
+ * that precedes it). Null if `fromYearId` is already the most recent.
+ */
+export function nextYearAfter<T extends { id: number; gregorian_label: string }>(
+  years: T[],
+  fromYearId: number,
+): T | null {
+  const sorted = [...years].sort((a, b) => a.gregorian_label.localeCompare(b.gregorian_label));
+  const idx = sorted.findIndex((y) => y.id === fromYearId);
+  if (idx === -1 || idx === sorted.length - 1) return null;
+  return sorted[idx + 1];
 }
 
 export interface ImportPlanRow {

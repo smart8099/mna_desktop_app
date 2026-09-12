@@ -2,15 +2,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { execute, executeBatch, select, selectOne, type BatchStatement } from "@/lib/db";
 import { normalizeGhanaPhone } from "@/lib/phone";
-import { currentYearId, type NamedRow } from "@/features/settings/api";
+import { currentYearId, useSettings, type NamedRow } from "@/features/settings/api";
+import { rateCase } from "@/features/fees/api";
 import {
   admissionFromCode,
   allocateCodes,
+  computeYearBalances,
   nextCode,
   planImport,
   promotionTarget,
   STUDENT_CODE_WIDTH,
   STUDENT_PREFIX,
+  type YearFeeTotals,
 } from "./logic";
 import type { ImportedStudent, StudentInput, StudentRow } from "./types";
 
@@ -112,6 +115,95 @@ export function useStudentExamFee(id: number | null, yearId: number | null) {
         "SELECT amount_due, amount_paid, receipt_no, notes FROM exam_fees WHERE student_id = ? AND year_id = ?",
         [id, yearId],
       ),
+  });
+}
+
+/**
+ * Every academic year's tuition and exam-fee balance for this student, in
+ * one pass — so a balance carried from a past (or into a future) year shows
+ * up here even while some other page is scoped to just one year.
+ */
+export function useStudentYearBalances(studentId: number | null) {
+  const { data: settings } = useSettings();
+  const weekend = Number(settings?.weekend_rate ?? 0);
+  const vacation = Number(settings?.vacation_rate ?? 0);
+
+  const query = useQuery({
+    queryKey: ["student-year-balances", studentId, weekend, vacation],
+    enabled: studentId != null && !!settings,
+    queryFn: () => {
+      const rc = rateCase(weekend, vacation);
+      return select<YearFeeTotals>(
+        `SELECT ay.id AS year_id, ay.hijri_label, ay.gregorian_label, ay.is_current,
+                COALESCE((SELECT SUM(${rc}) FROM attendance a
+                          WHERE a.student_id = ? AND a.status = 'Present' AND a.year_id = ay.id), 0) AS tuition_due,
+                COALESCE((SELECT SUM(p.amount) FROM fee_payments p
+                          WHERE p.student_id = ? AND p.year_id = ay.id), 0) AS tuition_paid,
+                COALESCE(ef.amount_due, 0) AS exam_due,
+                COALESCE(ef.amount_paid, 0) AS exam_paid
+         FROM academic_years ay
+         LEFT JOIN exam_fees ef ON ef.student_id = ? AND ef.year_id = ay.id
+         ORDER BY ay.gregorian_label ASC`,
+        [studentId, studentId, studentId],
+      );
+    },
+  });
+
+  return { ...query, balances: computeYearBalances(query.data ?? []) };
+}
+
+/**
+ * Moves an exam-fee overpayment from one year to another: reduces the source
+ * year's amount_paid by exactly the excess and adds it to the target year's
+ * (creating that row if it doesn't exist yet), leaving a note on both sides
+ * so the transfer is visible rather than a silent balance change.
+ */
+export function useApplyExamFeeCredit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (p: {
+      studentId: number;
+      fromYearId: number;
+      toYearId: number;
+      amount: number;
+      standardFee: number;
+      noteAmount: string; // pre-formatted with currency, e.g. "GH₵5.00"
+      fromYearLabel: string;
+      toYearLabel: string;
+    }) => {
+      const today = new Date().toISOString().slice(0, 10);
+      await executeBatch([
+        {
+          sql: `UPDATE exam_fees SET
+                  amount_paid = amount_paid - ?,
+                  notes = TRIM(COALESCE(notes || char(10), '') || ?),
+                  updated_at = datetime('now')
+                WHERE student_id = ? AND year_id = ?`,
+          params: [
+            p.amount,
+            `${p.noteAmount} carried forward to ${p.toYearLabel} on ${today}.`,
+            p.studentId,
+            p.fromYearId,
+          ],
+        },
+        {
+          sql: `INSERT INTO exam_fees (student_id, year_id, amount_due, amount_paid, notes)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(student_id, year_id) DO UPDATE SET
+                  amount_paid = amount_paid + excluded.amount_paid,
+                  notes = TRIM(COALESCE(exam_fees.notes || char(10), '') || excluded.notes),
+                  updated_at = datetime('now')`,
+          params: [
+            p.studentId,
+            p.toYearId,
+            p.standardFee,
+            p.amount,
+            `Includes ${p.noteAmount} credit carried forward from ${p.fromYearLabel}.`,
+          ],
+        },
+      ]);
+    },
+    onSuccess: () => qc.invalidateQueries(),
   });
 }
 
