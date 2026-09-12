@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
+import { toast } from "sonner";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { cn } from "@/lib/cn";
+import { checkForUpdate, installUpdate } from "@/lib/updater";
 
 export function Shell() {
   const isDesktop = useMediaQuery("(min-width: 768px)");
@@ -20,6 +22,35 @@ export function Shell() {
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
+
+  // Silent background check, once per app launch. A few seconds' delay keeps
+  // it off the critical path of first paint; failure (e.g. no network on an
+  // offline school computer) is expected and stays silent — only a found
+  // update surfaces anything to the user.
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const update = await checkForUpdate();
+      if (cancelled || !update) return;
+      toast.info(`Version ${update.version} is available`, {
+        duration: Infinity,
+        action: {
+          label: "Update & Restart",
+          onClick: () => {
+            toast.promise(installUpdate(update), {
+              loading: "Downloading update…",
+              success: "Update installed — restarting…",
+              error: "Update failed. You can try again from Backup & Recovery.",
+            });
+          },
+        },
+      });
+    }, 3000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, []);
 
   return (
     <div className="flex h-full overflow-hidden">

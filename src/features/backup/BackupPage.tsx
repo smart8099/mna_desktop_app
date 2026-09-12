@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -16,6 +17,7 @@ import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { LoadingBlock } from "@/components/ui/State";
 import { formatBytes } from "@/lib/format";
+import { checkForUpdate, installUpdate, type Update, type UpdateProgress } from "@/lib/updater";
 
 interface DbInfo {
   path: string;
@@ -54,6 +56,40 @@ export function BackupPage() {
   const [pending, setPending] = useState<{ path: string; meta: DbFileMeta } | null>(null);
   const [staging, setStaging] = useState(false);
   const [staged, setStaged] = useState(false);
+
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateChecked, setUpdateChecked] = useState(false);
+  const [update, setUpdate] = useState<Update | null>(null);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);
+
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => {});
+  }, []);
+
+  async function handleCheckUpdate() {
+    setCheckingUpdate(true);
+    setUpdateChecked(false);
+    try {
+      const found = await checkForUpdate();
+      setUpdate(found);
+      setUpdateChecked(true);
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }
+
+  async function handleInstallUpdate() {
+    if (!update) return;
+    setInstallingUpdate(true);
+    try {
+      await installUpdate(update, setUpdateProgress);
+    } catch (e) {
+      toast.error(typeof e === "string" ? e : "Update failed. Please try again.");
+      setInstallingUpdate(false);
+    }
+  }
 
   async function download() {
     try {
@@ -111,6 +147,45 @@ export function BackupPage() {
           Google Drive — if this computer is lost, upload that file on the new one and carry on.
         </p>
       </div>
+
+      <Card>
+        <CardHeader
+          title="Software updates"
+          description="Check for and install newer versions of the app."
+        />
+        <CardBody className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="text-sm text-text-muted">
+              Currently installed:{" "}
+              <span className="font-medium text-text">v{appVersion ?? "…"}</span>
+            </span>
+            {!update && (
+              <Button variant="outline" onClick={handleCheckUpdate} loading={checkingUpdate}>
+                <RefreshCw className="h-4 w-4" />
+                Check for updates
+              </Button>
+            )}
+          </div>
+          {updateChecked && !update && (
+            <p className="text-sm text-primary">You&apos;re on the latest version.</p>
+          )}
+          {update && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3">
+              <span className="text-sm text-text">
+                Version <span className="font-medium">{update.version}</span> is available.
+              </span>
+              <Button onClick={handleInstallUpdate} loading={installingUpdate}>
+                <Download className="h-4 w-4" />
+                {installingUpdate
+                  ? updateProgress?.totalBytes
+                    ? `Downloading… ${formatBytes(updateProgress.downloadedBytes)} / ${formatBytes(updateProgress.totalBytes)}`
+                    : "Downloading…"
+                  : "Download & install"}
+              </Button>
+            </div>
+          )}
+        </CardBody>
+      </Card>
 
       <Card>
         <CardHeader title="This database" />
