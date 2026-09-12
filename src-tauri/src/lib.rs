@@ -1,3 +1,4 @@
+mod auth;
 mod backup;
 mod batch;
 mod importer;
@@ -32,6 +33,12 @@ fn migrations() -> Vec<Migration> {
             version: 4,
             description: "per-class subject applicability",
             sql: include_str!("../migrations/0004_subject_classes.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 5,
+            description: "login, roles and critical-action confirmation",
+            sql: include_str!("../migrations/0005_auth.sql"),
             kind: MigrationKind::Up,
         },
     ]
@@ -73,6 +80,13 @@ pub fn run() {
             media::delete_student_photo,
             media::save_binary_file,
             batch::execute_transaction,
+            auth::has_any_users,
+            auth::create_first_admin,
+            auth::create_user,
+            auth::verify_login,
+            auth::verify_current_password,
+            auth::change_password,
+            auth::reset_password_with_recovery_code,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

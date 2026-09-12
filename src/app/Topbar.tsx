@@ -1,9 +1,10 @@
 import { useLocation } from "react-router-dom";
-import { Menu, PanelLeftClose, PanelLeftOpen, Moon, Sun, CalendarDays } from "lucide-react";
+import { Menu, PanelLeftClose, PanelLeftOpen, Moon, Sun, CalendarDays, LogOut, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { titleForPath } from "./nav";
 import { useCurrentYear } from "@/features/settings/api";
+import { useAuth } from "@/features/auth/AuthContext";
 
 function useTheme() {
   const [dark, setDark] = useState(() =>
@@ -30,6 +31,7 @@ export function Topbar({
   const { pathname } = useLocation();
   const { dark, toggle } = useTheme();
   const { data: year } = useCurrentYear();
+  const { user, logout } = useAuth();
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-3 border-b border-border bg-surface px-3 sm:px-4">
@@ -55,6 +57,17 @@ export function Topbar({
         <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
           {dark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </Button>
+        {user && (
+          <>
+            <span className="hidden items-center gap-1.5 rounded-lg border border-border bg-surface-muted px-2.5 py-1.5 text-xs font-medium text-text-muted md:inline-flex">
+              <User className="h-3.5 w-3.5" />
+              {user.username} · {user.role}
+            </span>
+            <Button variant="ghost" size="icon" onClick={logout} aria-label="Log out">
+              <LogOut className="h-5 w-5" />
+            </Button>
+          </>
+        )}
       </div>
     </header>
   );

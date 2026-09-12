@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 4;
+pub const CURRENT_SCHEMA_VERSION: i64 = 5;
 const DB_FILE: &str = "mna.db";
 const PENDING_FILE: &str = "pending-restore.db";
 const MAX_AUTO_BACKUPS: usize = 10;
@@ -271,6 +271,7 @@ mod tests {
     const PHASE2_SQL: &str = include_str!("../migrations/0002_phase2.sql");
     const PHASE3_SQL: &str = include_str!("../migrations/0003_indexes.sql");
     const PHASE4_SQL: &str = include_str!("../migrations/0004_subject_classes.sql");
+    const PHASE5_SQL: &str = include_str!("../migrations/0005_auth.sql");
 
     fn make_mna_db(path: &Path) {
         let conn = Connection::open(path).unwrap();
@@ -278,6 +279,7 @@ mod tests {
         conn.execute_batch(PHASE2_SQL).unwrap();
         conn.execute_batch(PHASE3_SQL).unwrap();
         conn.execute_batch(PHASE4_SQL).unwrap();
+        conn.execute_batch(PHASE5_SQL).unwrap();
     }
 
     fn tmp() -> tempfile::TempDir {
@@ -291,7 +293,7 @@ mod tests {
         make_mna_db(&db);
         let meta = read_db_meta(&db).expect("should read meta");
         assert_eq!(meta.app, APP_TAG);
-        assert_eq!(meta.schema_version, 4);
+        assert_eq!(meta.schema_version, 5);
         assert!(meta.created_at.is_some());
     }
 
@@ -335,7 +337,7 @@ mod tests {
         let size = copy_backup(&db, &dest).unwrap();
         assert!(size > 0);
         // the copy is itself a valid MNA database
-        assert_eq!(read_db_meta(&dest).unwrap().schema_version, 4);
+        assert_eq!(read_db_meta(&dest).unwrap().schema_version, 5);
     }
 
     #[test]

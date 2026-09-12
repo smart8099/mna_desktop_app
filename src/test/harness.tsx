@@ -3,6 +3,7 @@ import { vi } from "vitest";
 import { render } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { MutationCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { AuthProvider, type AuthUser } from "@/features/auth/AuthContext";
 
 /** Mockable Tauri `invoke` + dialog, dispatched by command name. */
 export function createTauriMock() {
@@ -92,10 +93,26 @@ export function createDbMock() {
 /** Shared singleton so a test file and its `vi.mock("@/lib/db")` reference the same fake. */
 export const db = createDbMock();
 
+const DEFAULT_TEST_USER: AuthUser = { id: 1, username: "test-admin", role: "admin" };
+
+/**
+ * `authUser` defaults to a stub admin so existing/most tests don't need to
+ * think about auth at all (Topbar and other consumers of useAuth() just
+ * work). Pass a teacher user to test role restrictions, or `null` to test
+ * the logged-out state (AuthGate's login/setup screens).
+ */
 export function renderWithProviders(
   ui: ReactElement,
-  opts: { route?: string; path?: string } = {},
+  opts: { route?: string; path?: string; authUser?: AuthUser | null } = {},
 ) {
+  const authUser = opts.authUser === undefined ? DEFAULT_TEST_USER : opts.authUser;
+  try {
+    if (authUser) sessionStorage.setItem("mna.session-user", JSON.stringify(authUser));
+    else sessionStorage.removeItem("mna.session-user");
+  } catch {
+    /* jsdom sessionStorage should always be available; ignore if not */
+  }
+
   const queryClient: QueryClient = new QueryClient({
     mutationCache: new MutationCache({
       onSettled: (): void => {
@@ -107,15 +124,17 @@ export function renderWithProviders(
 
   const wrapper = (children: ReactNode) => (
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[opts.route ?? "/"]}>
-        {opts.path ? (
-          <Routes>
-            <Route path={opts.path} element={children} />
-          </Routes>
-        ) : (
-          children
-        )}
-      </MemoryRouter>
+      <AuthProvider>
+        <MemoryRouter initialEntries={[opts.route ?? "/"]}>
+          {opts.path ? (
+            <Routes>
+              <Route path={opts.path} element={children} />
+            </Routes>
+          ) : (
+            children
+          )}
+        </MemoryRouter>
+      </AuthProvider>
     </QueryClientProvider>
   );
 

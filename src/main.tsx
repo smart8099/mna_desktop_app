@@ -4,6 +4,8 @@ import { HashRouter } from "react-router-dom";
 import { MutationCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import App from "./App";
+import { AuthProvider } from "./features/auth/AuthContext";
+import { AuthGate } from "./features/auth/AuthGate";
 import "./index.css";
 
 // The database is a local SQLite file — reads are effectively free, so we favour
@@ -36,9 +38,13 @@ if (savedTheme === "dark" || (!savedTheme && window.matchMedia("(prefers-color-s
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <HashRouter>
-        <App />
-      </HashRouter>
+      <AuthProvider>
+        <HashRouter>
+          <AuthGate>
+            <App />
+          </AuthGate>
+        </HashRouter>
+      </AuthProvider>
       <Toaster richColors position="bottom-right" closeButton />
     </QueryClientProvider>
   </React.StrictMode>,

@@ -9,6 +9,7 @@ const INIT_SQL: &str = include_str!("../migrations/0001_init.sql");
 const PHASE2_SQL: &str = include_str!("../migrations/0002_phase2.sql");
 const PHASE3_SQL: &str = include_str!("../migrations/0003_indexes.sql");
 const PHASE4_SQL: &str = include_str!("../migrations/0004_subject_classes.sql");
+const PHASE5_SQL: &str = include_str!("../migrations/0005_auth.sql");
 
 fn db() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
@@ -16,6 +17,7 @@ fn db() -> Connection {
     conn.execute_batch(PHASE2_SQL).unwrap();
     conn.execute_batch(PHASE3_SQL).unwrap();
     conn.execute_batch(PHASE4_SQL).unwrap();
+    conn.execute_batch(PHASE5_SQL).unwrap();
     conn.pragma_update(None, "foreign_keys", true).unwrap();
     conn
 }
@@ -33,7 +35,7 @@ fn migration_creates_every_expected_table() {
         "meta", "settings", "academic_years", "academic_calendar", "classes",
         "subjects", "subject_classes", "weight_overrides", "students", "student_enrollments",
         "teachers", "teacher_assignments", "attendance", "fee_charges", "fee_payments",
-        "exam_fees", "results", "report_card_remarks", "users", "audit_log",
+        "exam_fees", "results", "report_card_remarks", "users", "critical_actions", "audit_log",
     ];
     for t in expected {
         let n = scalar_i64(
@@ -77,7 +79,7 @@ fn seed_data_matches_the_spreadsheet() {
             |r| r.get(0)
         )
         .unwrap(),
-        "4"
+        "5"
     );
 }
 
@@ -600,6 +602,49 @@ fn teacher_assignment_is_unique_per_teacher_class_subject_year() {
         [cid, sid],
     );
     assert!(dup.is_err(), "UNIQUE(teacher_id, class_id, subject_id, year_id) must hold");
+}
+
+#[test]
+fn critical_actions_are_seeded_with_sensible_defaults() {
+    let conn = db();
+    let n = scalar_i64(&conn, "SELECT COUNT(*) FROM critical_actions");
+    assert!(n >= 6, "expected several seeded critical actions, got {n}");
+
+    let requires_password = scalar_i64(
+        &conn,
+        "SELECT require_password FROM critical_actions WHERE action_key = 'delete_student'",
+    );
+    assert_eq!(requires_password, 1, "deleting a student should default to requiring a password");
+}
+
+#[test]
+fn a_user_role_is_constrained_to_admin_or_teacher() {
+    let conn = db();
+    conn.execute(
+        "INSERT INTO users (username, password_hash, role) VALUES ('amina', 'x', 'admin')",
+        [],
+    )
+    .unwrap();
+    let bad = conn.execute(
+        "INSERT INTO users (username, password_hash, role) VALUES ('yusuf', 'x', 'principal')",
+        [],
+    );
+    assert!(bad.is_err(), "CHECK(role IN ('admin','teacher')) must hold");
+}
+
+#[test]
+fn a_username_must_be_unique() {
+    let conn = db();
+    conn.execute(
+        "INSERT INTO users (username, password_hash, role) VALUES ('amina', 'x', 'admin')",
+        [],
+    )
+    .unwrap();
+    let dup = conn.execute(
+        "INSERT INTO users (username, password_hash, role) VALUES ('amina', 'y', 'teacher')",
+        [],
+    );
+    assert!(dup.is_err(), "UNIQUE(username) must hold");
 }
 
 fn seed_one_student_year_subject(conn: &Connection) {
