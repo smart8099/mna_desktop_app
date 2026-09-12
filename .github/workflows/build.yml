@@ -71,7 +71,7 @@ jobs:
           releaseBody: "See the assets below to download this version."
           releaseDraft: true
           prerelease: false
-          uploadUpdaterJson: true
+          includeUpdaterJson: true
 
       # A manual workflow_dispatch run (no tag) just builds the installers to
       # confirm the pipeline still compiles — no release is created, since
