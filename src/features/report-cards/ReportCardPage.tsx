@@ -6,15 +6,16 @@ import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { Select, Textarea } from "@/components/ui/Input";
 import { LoadingBlock } from "@/components/ui/State";
+import { YearSelect } from "@/components/ui/YearSelect";
 import { cn } from "@/lib/cn";
 import { savePdf } from "@/lib/pdf";
-import { useCurrentYear, useNamedList, useSettings } from "@/features/settings/api";
+import { useNamedList, useSettings, useYearFilter } from "@/features/settings/api";
 import { useClassGradebook, useSaveGeneralRemark } from "./api";
 import { ReportCard, type ReportCardData } from "./ReportCard";
 
 export function ReportCardPage() {
   const { data: settings } = useSettings();
-  const { data: year } = useCurrentYear();
+  const { years, year, yearId, setYearId } = useYearFilter();
   const { data: classes = [] } = useNamedList("classes");
 
   const [searchParams] = useSearchParams();
@@ -38,7 +39,7 @@ export function ReportCardPage() {
     if (classId == null && classes.length) setClassId(classes[0].id);
   }, [classes, classId]);
 
-  const gb = useClassGradebook(classId, year?.id ?? null);
+  const gb = useClassGradebook(classId, yearId);
   const saveRemark = useSaveGeneralRemark();
 
   useEffect(() => {
@@ -155,6 +156,11 @@ export function ReportCardPage() {
             </button>
           ))}
         </div>
+        {years.length > 0 && (
+          <Field label="Year" className="w-56">
+            <YearSelect years={years} value={yearId} onChange={setYearId} className="w-full" />
+          </Field>
+        )}
         <Field label="Class" className="w-44">
           <Select
             value={classId ?? ""}

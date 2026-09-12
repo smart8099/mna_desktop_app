@@ -342,9 +342,13 @@ describe("Student detail page", () => {
     db.on(/FROM student_enrollments e/i, () => []);
     db.on(/FROM attendance a WHERE a\.student_id = 1/i, () => []); // ledger charges
     db.on(/FROM fee_payments WHERE student_id = 1/i, () => []);
-    db.on(/FROM exam_fees WHERE student_id = \? AND year_id = \?/i, () => [
-      { amount_due: 40, amount_paid: 40, receipt_no: "EX-0001", notes: null },
-    ]);
+    // Year-aware: year 1 (current, per baseFixtures) is paid in full; year 2
+    // (added per-test for the year-switcher test below) is unpaid.
+    db.on(/FROM exam_fees WHERE student_id = \? AND year_id = \?/i, (_sql, params) =>
+      params[1] === 2
+        ? [{ amount_due: 40, amount_paid: 0, receipt_no: null, notes: null }]
+        : [{ amount_due: 40, amount_paid: 40, receipt_no: "EX-0001", notes: null }],
+    );
     db.on(/s\.gender, cl\.name AS class_name FROM students s LEFT JOIN classes cl/i, () => [
       { student_id: 1, student_code: "MNA-0001", full_name: "Amina Yakubu", gender: "Female", class_name: "Class 2" },
     ]);
@@ -362,7 +366,9 @@ describe("Student detail page", () => {
     expect(await screen.findByRole("heading", { name: "Amina Yakubu" })).toBeInTheDocument();
     expect(screen.getByText("Admission no.")).toBeInTheDocument();
     expect(screen.getByText("MNA1")).toBeInTheDocument();
-    expect(screen.getByText("Paid in full")).toBeInTheDocument();
+    // The exam-fee card resolves once the page's own year-filter state settles
+    // (defaults to the current year, one tick after the year query resolves).
+    expect(await screen.findByText("Paid in full")).toBeInTheDocument();
 
     // 80/80 with 30/70 weights -> 80, grade A, appears in the performance table
     await waitFor(() => {
@@ -371,6 +377,27 @@ describe("Student detail page", () => {
       expect(cells[3]).toHaveTextContent("80"); // Total
       expect(cells[4]).toHaveTextContent("A"); // Grade
     });
+  });
+
+  it("switches to a past academic year without touching the global current year", async () => {
+    db.on(/FROM academic_years ORDER BY is_current DESC/i, () => [
+      { id: 1, hijri_label: "1448", gregorian_label: "2026/2027", is_current: 1, start_date: null, end_date: null },
+      { id: 2, hijri_label: "1447", gregorian_label: "2025/2026", is_current: 0, start_date: null, end_date: null },
+    ]);
+
+    const { StudentDetailPage } = await import("@/features/students/StudentDetailPage");
+    renderWithProviders(<StudentDetailPage />, { route: "/students/1", path: "/students/:id" });
+
+    // starts on the current year, no "viewing a past year" banner
+    expect(await screen.findByText("Paid in full")).toBeInTheDocument();
+    expect(screen.queryByText(/not the current academic year/i)).not.toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText("Academic year"), "2");
+
+    await waitFor(() =>
+      expect(screen.getByText(/not the current academic year/i)).toBeInTheDocument(),
+    );
+    expect(await screen.findByText("Unpaid")).toBeInTheDocument();
   });
 });
 

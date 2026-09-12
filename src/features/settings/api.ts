@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { execute, select, selectOne } from "@/lib/db";
 
@@ -101,6 +102,35 @@ export function useCurrentYear() {
         "SELECT * FROM academic_years WHERE is_current = 1 LIMIT 1",
       ),
   });
+}
+
+/**
+ * A page-local "which year am I looking at" selector. Defaults to the global
+ * current year but can be switched independently — it never changes the
+ * global setting, so other pages (and re-visiting this one) are unaffected.
+ * Use this on reporting/viewing pages (Student Detail, Report Cards,
+ * Dashboard) where looking at a past year is just reading history; the
+ * day-to-day entry pages (Attendance, Fees, Results) intentionally keep
+ * following the global current year instead.
+ */
+export function useYearFilter() {
+  const { data: years } = useAcademicYears();
+  const { data: current } = useCurrentYear();
+  const [yearId, setYearId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (yearId == null && current) setYearId(current.id);
+  }, [current, yearId]);
+
+  const year = years?.find((y) => y.id === yearId) ?? null;
+
+  return {
+    years: years ?? [],
+    year,
+    yearId,
+    setYearId,
+    isCurrentYear: !!current && yearId === current.id,
+  };
 }
 
 /** The current academic year's id, or null if none is set. */

@@ -6,9 +6,10 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { LoadingBlock } from "@/components/ui/State";
+import { YearSelect } from "@/components/ui/YearSelect";
 import { cn } from "@/lib/cn";
 import { formatMoney } from "@/lib/money";
-import { useCurrentYear, useNamedList, useSettings } from "@/features/settings/api";
+import { useNamedList, useSettings, useYearFilter } from "@/features/settings/api";
 import { balance, paymentStatus, PAYMENT_STATUS_LABEL } from "@/features/fees/logic";
 import { useStudentLedger } from "@/features/fees/api";
 import { useClassGradebook } from "@/features/report-cards/api";
@@ -27,17 +28,17 @@ export function StudentDetailPage() {
   const navigate = useNavigate();
 
   const { data: student, isLoading } = useStudent(Number.isFinite(id) ? id : null);
-  const { data: year } = useCurrentYear();
+  const { years, year, yearId, setYearId, isCurrentYear } = useYearFilter();
   const { data: settings } = useSettings();
   const { data: classes = [] } = useNamedList("classes");
 
-  const attendance = useStudentAttendance(id, year?.id ?? null);
+  const attendance = useStudentAttendance(id, yearId);
   const enrollments = useStudentEnrollments(id);
-  const ledger = useStudentLedger(Number.isFinite(id) ? id : null);
-  const examFee = useStudentExamFee(id, year?.id ?? null);
+  const ledger = useStudentLedger(Number.isFinite(id) ? id : null, yearId);
+  const examFee = useStudentExamFee(id, yearId);
   // This page has its own attendance query for the one student being viewed,
   // so skip fetching every classmate's attendance/remarks just for ranking.
-  const gb = useClassGradebook(student?.class_id ?? null, year?.id ?? null, {
+  const gb = useClassGradebook(student?.class_id ?? null, yearId, {
     includeAttendance: false,
   });
   const perf = gb.gradebook.find((g) => g.student_id === id) ?? null;
@@ -75,11 +76,23 @@ export function StudentDetailPage() {
           <ArrowLeft className="h-4 w-4" />
           Students
         </Link>
-        <Button variant="outline" onClick={() => setEditOpen(true)}>
-          <Pencil className="h-4 w-4" />
-          Edit
-        </Button>
+        <div className="flex items-center gap-2">
+          {years.length > 0 && (
+            <YearSelect years={years} value={yearId} onChange={setYearId} className="h-9 w-auto text-sm" />
+          )}
+          <Button variant="outline" onClick={() => setEditOpen(true)}>
+            <Pencil className="h-4 w-4" />
+            Edit
+          </Button>
+        </div>
       </div>
+
+      {!isCurrentYear && year && (
+        <div className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm text-warning">
+          Viewing {year.hijri_label} AH — not the current academic year. Attendance, fees and
+          results below are all scoped to this year.
+        </div>
+      )}
 
       {/* header */}
       <Card>

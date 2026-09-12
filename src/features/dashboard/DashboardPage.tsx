@@ -10,16 +10,17 @@ import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { StatTile } from "@/components/ui/StatTile";
 import { BarList, type BarItem } from "@/components/ui/BarList";
 import { LoadingBlock } from "@/components/ui/State";
+import { YearSelect } from "@/components/ui/YearSelect";
 import { formatMoney } from "@/lib/money";
-import { useCurrentYear, useSettings } from "@/features/settings/api";
+import { useSettings, useYearFilter } from "@/features/settings/api";
 import { useDashboard } from "./api";
 
 const GRADE_TONE = { A: "primary", B: "primary", C: "amber", D: "amber", F: "red" } as const;
 
 export function DashboardPage() {
-  const { data: year } = useCurrentYear();
+  const { years, year, yearId, setYearId } = useYearFilter();
   const { data: settings } = useSettings();
-  const d = useDashboard(year?.id ?? null);
+  const d = useDashboard(yearId);
   const currency = settings?.currency ?? "GH₵";
 
   if (d.isLoading) {
@@ -57,13 +58,16 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-text">Dashboard</h2>
-        <p className="mt-1 text-sm text-text-muted">
-          {year
-            ? `Overview for ${year.hijri_label} AH · ${year.gregorian_label}.`
-            : "No current academic year set — showing all-time figures."}
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold text-text">Dashboard</h2>
+          <p className="mt-1 text-sm text-text-muted">
+            {year
+              ? `Overview for ${year.hijri_label} AH · ${year.gregorian_label}.`
+              : "No current academic year set — showing all-time figures."}
+          </p>
+        </div>
+        {years.length > 0 && <YearSelect years={years} value={yearId} onChange={setYearId} />}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">

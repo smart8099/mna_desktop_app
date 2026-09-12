@@ -78,19 +78,26 @@ export function useFeeSummary(classId: number | "all") {
   });
 }
 
-export function useStudentLedger(studentId: number | null) {
+/**
+ * `yearId` is optional: pass it to scope the ledger to a specific academic
+ * year (e.g. a page-local `useYearFilter()`). Omit it to keep the historic
+ * default of following the global current year — that's still what the
+ * Fees page's LedgerDrawer relies on.
+ */
+export function useStudentLedger(studentId: number | null, yearId?: number | null) {
   const { data: settings } = useSettings();
-  const { data: year } = useCurrentYear();
+  const { data: currentYear } = useCurrentYear();
+  const effectiveYearId = yearId !== undefined ? yearId : (currentYear?.id ?? null);
   const weekend = num(settings?.weekend_rate);
   const vacation = num(settings?.vacation_rate);
 
   return useQuery({
-    queryKey: ["student-ledger", studentId, weekend, vacation, year?.id ?? null],
+    queryKey: ["student-ledger", studentId, weekend, vacation, effectiveYearId],
     enabled: studentId != null && !!settings,
     queryFn: async () => {
       const rc = rateCase(weekend, vacation);
-      const yf = year ? `AND a.year_id = ${Number(year.id)}` : "";
-      const pf = year ? `AND year_id = ${Number(year.id)}` : "";
+      const yf = effectiveYearId ? `AND a.year_id = ${Number(effectiveYearId)}` : "";
+      const pf = effectiveYearId ? `AND year_id = ${Number(effectiveYearId)}` : "";
       const charges = await select<ChargeLine>(
         `SELECT date, rate, dow FROM (
            SELECT a.date AS date, ${rc} AS rate,
