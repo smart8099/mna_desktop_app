@@ -1,9 +1,12 @@
+import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { execute, executeBatch, select, selectOne, type BatchStatement } from "@/lib/db";
 import { normalizeGhanaPhone } from "@/lib/phone";
 import { currentYearId, useSettings, type NamedRow } from "@/features/settings/api";
 import { rateCase } from "@/features/fees/api";
+import { useGradingConfig } from "@/features/results/api";
+import { overallAverage, resolveWeights, weightedTotal } from "@/features/results/logic";
 import {
   admissionFromCode,
   allocateStudentCodes,
@@ -148,6 +151,77 @@ export function useStudentYearBalances(studentId: number | null) {
   });
 
   return { ...query, balances: computeYearBalances(query.data ?? []) };
+}
+
+interface YearlyResultRow {
+  year_id: number;
+  hijri_label: string;
+  gregorian_label: string;
+  subject_id: number;
+  ca_mark: number | null;
+  exam_mark: number | null;
+}
+
+export interface YearlyPerformance {
+  year_id: number;
+  hijri_label: string;
+  gregorian_label: string;
+  average: number | null;
+}
+
+/**
+ * This student's overall average per academic year, across every year they
+ * have graded results in — the "performance across years" trend chart.
+ *
+ * Simplification: weight resolution only considers subject-level overrides,
+ * not class-level ones, since a student's class can change year to year and
+ * this endpoint doesn't try to reconstruct their historical enrollment —
+ * fine for a trend chart, not meant to reproduce the authoritative
+ * per-class report card computation.
+ */
+export function useStudentYearlyPerformance(studentId: number | null) {
+  const grading = useGradingConfig();
+
+  const query = useQuery({
+    queryKey: ["student-yearly-performance", studentId],
+    enabled: studentId != null,
+    queryFn: () =>
+      select<YearlyResultRow>(
+        `SELECT r.year_id, ay.hijri_label, ay.gregorian_label, r.subject_id, r.ca_mark, r.exam_mark
+         FROM results r
+         JOIN academic_years ay ON ay.id = r.year_id
+         WHERE r.student_id = ?
+         ORDER BY ay.gregorian_label`,
+        [studentId],
+      ),
+  });
+
+  const yearly = useMemo<YearlyPerformance[]>(() => {
+    const byYear = new Map<
+      number,
+      { hijri_label: string; gregorian_label: string; totals: (number | null)[] }
+    >();
+    for (const r of query.data ?? []) {
+      const weights = resolveWeights(null, r.subject_id, grading.defaults, grading.overrides);
+      const entry = byYear.get(r.year_id) ?? {
+        hijri_label: r.hijri_label,
+        gregorian_label: r.gregorian_label,
+        totals: [],
+      };
+      entry.totals.push(weightedTotal(r.ca_mark, r.exam_mark, weights));
+      byYear.set(r.year_id, entry);
+    }
+    return [...byYear.entries()]
+      .map(([year_id, v]) => ({
+        year_id,
+        hijri_label: v.hijri_label,
+        gregorian_label: v.gregorian_label,
+        average: overallAverage(v.totals),
+      }))
+      .sort((a, b) => a.gregorian_label.localeCompare(b.gregorian_label));
+  }, [query.data, grading.defaults, grading.overrides]);
+
+  return { yearly, isLoading: query.isLoading || grading.isLoading };
 }
 
 /**

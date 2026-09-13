@@ -518,13 +518,36 @@ describe("Student detail page", () => {
     // (defaults to the current year, one tick after the year query resolves).
     expect(await screen.findByText("Paid in full")).toBeInTheDocument();
 
-    // 80/80 with 30/70 weights -> 80, grade A, appears in the performance table
+    // 80/80 with 30/70 weights -> 80, grade A, appears in the performance
+    // table (and, separately, as a bar-chart label above it — both say
+    // "Quran", so pick out the table row specifically).
     await waitFor(() => {
-      const quranRow = screen.getByText("Quran").closest("tr")!;
+      const quranRow = screen.getAllByText("Quran").map((el) => el.closest("tr")).find(Boolean)!;
       const cells = within(quranRow).getAllByRole("cell");
       expect(cells[3]).toHaveTextContent("80"); // Total
       expect(cells[4]).toHaveTextContent("A"); // Grade
     });
+  });
+
+  it("shows a performance-across-years chart alongside the subject breakdown", async () => {
+    db.on(/FROM results r\s+JOIN academic_years ay ON ay\.id = r\.year_id/i, () => [
+      // this year (1448 AH): 80/80 -> weighted 80
+      { year_id: 1, hijri_label: "1448", gregorian_label: "2026/2027", subject_id: 10, ca_mark: 80, exam_mark: 80 },
+      // a prior year (1447 AH): 40/40 -> weighted 40
+      { year_id: 2, hijri_label: "1447", gregorian_label: "2025/2026", subject_id: 10, ca_mark: 40, exam_mark: 40 },
+    ]);
+
+    const { StudentDetailPage } = await import("@/features/students/StudentDetailPage");
+    renderWithProviders(<StudentDetailPage />, { route: "/students/1", path: "/students/:id" });
+
+    await screen.findByRole("heading", { name: "Amina Yakubu" });
+    const chartCard = (await screen.findByText("Performance across years")).closest(
+      ".rounded-xl",
+    ) as HTMLElement;
+    expect(within(chartCard).getByText("1448 AH")).toBeInTheDocument();
+    expect(within(chartCard).getByText("1447 AH")).toBeInTheDocument();
+    expect(within(chartCard).getByText("80")).toBeInTheDocument();
+    expect(within(chartCard).getByText("40")).toBeInTheDocument();
   });
 
   it("switches to a past academic year without touching the global current year", async () => {

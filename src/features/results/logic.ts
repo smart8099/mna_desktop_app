@@ -19,6 +19,14 @@ export function gradeFor(total: number | null): string {
   return "F";
 }
 
+/** A chart-bar color for a grade letter — shared by every performance chart. */
+export function toneForGrade(grade: string): "primary" | "amber" | "red" | "muted" {
+  if (grade === "A" || grade === "B") return "primary";
+  if (grade === "C" || grade === "D") return "amber";
+  if (grade === "F") return "red";
+  return "muted";
+}
+
 /** Weighted subject total, or null if either mark is missing. */
 export function weightedTotal(
   ca: number | null,

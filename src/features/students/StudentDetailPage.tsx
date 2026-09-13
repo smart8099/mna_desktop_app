@@ -6,6 +6,7 @@ import { ArrowLeft, CalendarCheck, FileText, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
+import { BarList, type BarItem } from "@/components/ui/BarList";
 import { Dialog } from "@/components/ui/Dialog";
 import { LoadingBlock } from "@/components/ui/State";
 import { YearSelect } from "@/components/ui/YearSelect";
@@ -16,6 +17,7 @@ import { useNamedList, useSettings, useYearFilter } from "@/features/settings/ap
 import { balance, paymentStatus, PAYMENT_STATUS_LABEL } from "@/features/fees/logic";
 import { useStudentLedger } from "@/features/fees/api";
 import { useClassGradebook } from "@/features/report-cards/api";
+import { toneForGrade } from "@/features/results/logic";
 import {
   useApplyExamFeeCredit,
   useStudent,
@@ -23,6 +25,7 @@ import {
   useStudentEnrollments,
   useStudentExamFee,
   useStudentYearBalances,
+  useStudentYearlyPerformance,
 } from "./api";
 import { ageFromDob, initials, nextYearAfter } from "./logic";
 import { StudentFormDrawer } from "./StudentFormDrawer";
@@ -48,6 +51,7 @@ export function StudentDetailPage() {
     includeAttendance: false,
   });
   const perf = gb.gradebook.find((g) => g.student_id === id) ?? null;
+  const yearlyPerformance = useStudentYearlyPerformance(id);
   const yearBalances = useStudentYearBalances(id);
   const applyCredit = useApplyExamFeeCredit();
 
@@ -290,7 +294,21 @@ export function StudentDetailPage() {
                 No results entered for this student{year ? ` in ${year.hijri_label} AH` : ""}.
               </p>
             ) : (
-              <div className="overflow-x-auto">
+              <div>
+                <div className="border-b border-border p-5">
+                  <BarList
+                    items={perf.cells.map(
+                      (c): BarItem => ({
+                        label: c.name,
+                        value: c.total ?? 0,
+                        display: c.total == null ? "—" : `${c.total} · ${c.grade}`,
+                        tone: toneForGrade(c.grade),
+                      }),
+                    )}
+                    max={100}
+                  />
+                </div>
+                <div className="overflow-x-auto">
                 <table className="w-full min-w-[560px] text-sm">
                   <thead className="border-b border-border bg-surface-muted text-left text-xs text-text-muted">
                     <tr>
@@ -326,7 +344,34 @@ export function StudentDetailPage() {
                     </tr>
                   </tfoot>
                 </table>
+                </div>
               </div>
+            )}
+          </CardBody>
+        </Card>
+
+        {/* performance across years */}
+        <Card className="lg:col-span-2">
+          <CardHeader
+            title="Performance across years"
+            description="Overall average per academic year, across all subjects."
+          />
+          <CardBody>
+            {yearlyPerformance.isLoading ? (
+              <LoadingBlock />
+            ) : (
+              <BarList
+                items={yearlyPerformance.yearly.map(
+                  (y): BarItem => ({
+                    label: `${y.hijri_label} AH`,
+                    value: y.average ?? 0,
+                    display: y.average == null ? "—" : String(y.average),
+                    tone: y.year_id === yearId ? "primary" : "blue",
+                  }),
+                )}
+                max={100}
+                empty="No graded results for this student in any year yet."
+              />
             )}
           </CardBody>
         </Card>

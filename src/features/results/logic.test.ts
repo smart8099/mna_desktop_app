@@ -6,6 +6,7 @@ import {
   overallAverage,
   rankByTotal,
   resolveWeights,
+  toneForGrade,
   weightedTotal,
   type WeightOverride,
 } from "./logic";
@@ -23,6 +24,17 @@ describe("gradeFor", () => {
   });
   it("shows a dash when there is no total", () => {
     expect(gradeFor(null)).toBe("—");
+  });
+});
+
+describe("toneForGrade", () => {
+  it("greens A and B, ambers C and D, reds F, and mutes anything else", () => {
+    expect(toneForGrade("A")).toBe("primary");
+    expect(toneForGrade("B")).toBe("primary");
+    expect(toneForGrade("C")).toBe("amber");
+    expect(toneForGrade("D")).toBe("amber");
+    expect(toneForGrade("F")).toBe("red");
+    expect(toneForGrade("—")).toBe("muted");
   });
 });
 
