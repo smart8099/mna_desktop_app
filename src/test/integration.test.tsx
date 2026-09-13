@@ -855,7 +855,7 @@ describe("Report Cards", () => {
     expect(img!.src).toContain("amina.png");
   });
 
-  it("shows an empty photo box when the student has no photo", async () => {
+  it("shows a placeholder graphic when the student has no photo", async () => {
     const { ReportCardPage } = await import("@/features/report-cards/ReportCardPage");
     renderWithProviders(<ReportCardPage />);
 
@@ -866,7 +866,10 @@ describe("Report Cards", () => {
       const card = document.querySelector(".report-card")!;
       expect(within(card as HTMLElement).getByText("Bilal Osei")).toBeInTheDocument();
     });
-    expect(screen.getByTestId("student-photo-box").querySelector("img")).toBeNull();
+    const img = screen.getByTestId("student-photo-box").querySelector("img");
+    expect(img).toBeTruthy();
+    // the placeholder is a bundled asset, never run through convertFileSrc
+    expect(img!.src).not.toContain("test-asset://");
   });
 });
 

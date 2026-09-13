@@ -1,4 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
+import avatarPlaceholder from "@/assets/avatar-placeholder.svg";
 import { Logo } from "@/components/ui/Logo";
 import type { GradebookStudent } from "@/features/results/logic";
 
@@ -36,12 +37,14 @@ export function ReportCard({ data }: { data: ReportCardData }) {
           data-testid="student-photo-box"
           className="h-16 w-16 shrink-0 overflow-hidden rounded border border-slate-300 bg-slate-50"
         >
-          {data.student.photo_path && (
+          {data.student.photo_path ? (
             <img
               src={convertFileSrc(data.student.photo_path)}
               alt=""
               className="h-full w-full object-cover"
             />
+          ) : (
+            <img src={avatarPlaceholder} alt="" className="h-full w-full object-cover" />
           )}
         </div>
       </header>
