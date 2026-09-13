@@ -22,33 +22,33 @@ export function ReportCardPage() {
 
   const [searchParams] = useSearchParams();
   const [mode, setMode] = useState<"single" | "class">("single");
-  const [classId, setClassId] = useState<number | null>(null);
-  const [studentId, setStudentId] = useState<number | null>(null);
-
-  // Deep link from the student profile page:
-  // /report-cards?class=..&student=..&year=..
-  // Applied exactly once, before either "default to the first class/student"
-  // effect below gets a chance to run — otherwise those two effects can win
-  // the race against this one depending on how fast `classes`/`gb.students`
-  // happen to load, silently landing on the wrong class or student.
-  const paramsAppliedRef = useRef(false);
-  useEffect(() => {
-    if (paramsAppliedRef.current) return;
-    paramsAppliedRef.current = true;
+  // Deep link from the student profile page: /report-cards?class=..&student=..
+  // Read synchronously at init time, NOT in a useEffect — an effect-based
+  // approach raced against the "default to the first class/student" effects
+  // below: setClassId(c) doesn't take effect until the next render, so a
+  // sibling effect in the very same pass would still see the old (null)
+  // classId, conclude nothing had been chosen yet, and immediately
+  // overwrite it with classes[0] before the deep-linked value ever stuck.
+  const [classId, setClassId] = useState<number | null>(() => {
     const c = Number(searchParams.get("class"));
+    return c || null;
+  });
+  const [studentId, setStudentId] = useState<number | null>(() => {
     const s = Number(searchParams.get("student"));
+    return s || null;
+  });
+
+  // `year` is owned by the separate useYearFilter() hook, so it can't be
+  // read via a lazy initializer here — apply it once on mount instead. This
+  // one doesn't race the class/student defaulting effects since it's an
+  // independent piece of state they don't read or write.
+  useEffect(() => {
     const y = Number(searchParams.get("year"));
-    if (c) setClassId(c);
     if (y) setYearId(y);
-    if (s) {
-      setMode("single");
-      setStudentId(s);
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (!paramsAppliedRef.current) return;
     if (classId == null && classes.length) setClassId(classes[0].id);
   }, [classes, classId]);
 
@@ -56,7 +56,6 @@ export function ReportCardPage() {
   const saveRemark = useSaveGeneralRemark();
 
   useEffect(() => {
-    if (!paramsAppliedRef.current) return;
     if (gb.students.length && !gb.students.some((s) => s.student_id === studentId)) {
       setStudentId(gb.students[0].student_id);
     }

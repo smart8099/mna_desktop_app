@@ -853,10 +853,20 @@ describe("Backup page", () => {
 describe("Report Cards", () => {
   beforeEach(() => {
     baseFixtures();
-    db.on(/FROM students s LEFT JOIN classes cl ON cl\.id = s\.class_id\s+WHERE s\.class_id = \?/i, () => [
-      { student_id: 1, student_code: "MNA-0001", full_name: "Amina Yakubu", gender: "Female", class_name: "Class 2", photo_path: "/photos/amina.png" },
-      { student_id: 2, student_code: "MNA-0002", full_name: "Bilal Osei", gender: "Male", class_name: "Class 2", photo_path: null },
-    ]);
+    // Discriminates by classId (params[0]) — a page that ever defaults to
+    // the wrong class (e.g. classes[0] instead of a deep-linked one) would
+    // show Zainab instead of Amina/Bilal, making that class of bug visible
+    // to these tests rather than silently masked by a static fixture.
+    db.on(/FROM students s LEFT JOIN classes cl ON cl\.id = s\.class_id\s+WHERE s\.class_id = \?/i, (_sql, params) =>
+      params[0] === 2
+        ? [
+            { student_id: 1, student_code: "MNA-0001", full_name: "Amina Yakubu", gender: "Female", class_name: "Class 2", photo_path: "/photos/amina.png" },
+            { student_id: 2, student_code: "MNA-0002", full_name: "Bilal Osei", gender: "Male", class_name: "Class 2", photo_path: null },
+          ]
+        : [
+            { student_id: 3, student_code: "MNA-0003", full_name: "Zainab Adam", gender: "Female", class_name: "Class 1", photo_path: null },
+          ],
+    );
     db.on(/FROM results r JOIN students s ON s\.id = r\.student_id WHERE s\.class_id/i, () => [
       { student_id: 1, subject_id: 10, ca_mark: 80, exam_mark: 80, teacher_remark: null },
     ]);
@@ -868,9 +878,12 @@ describe("Report Cards", () => {
 
   it("shows the student's photo when one exists", async () => {
     const { ReportCardPage } = await import("@/features/report-cards/ReportCardPage");
-    renderWithProviders(<ReportCardPage />);
+    renderWithProviders(<ReportCardPage />, { route: "/report-cards?class=2" });
 
-    await screen.findByText("Amina Yakubu");
+    // wait for the actual rendered card, not just the name appearing in the
+    // Student <select> (which populates before the heavier gradebook
+    // sub-queries — results/attendance/remarks — finish resolving).
+    await waitFor(() => expect(document.querySelector(".report-card")).toBeTruthy());
     const box = screen.getByTestId("student-photo-box");
     const img = box.querySelector("img");
     expect(img).toBeTruthy();
@@ -880,7 +893,7 @@ describe("Report Cards", () => {
 
   it("shows a placeholder graphic when the student has no photo", async () => {
     const { ReportCardPage } = await import("@/features/report-cards/ReportCardPage");
-    renderWithProviders(<ReportCardPage />);
+    renderWithProviders(<ReportCardPage />, { route: "/report-cards?class=2" });
 
     await screen.findByText("Amina Yakubu");
     await userEvent.selectOptions(screen.getByLabelText("Student"), "2");
