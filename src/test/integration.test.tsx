@@ -101,6 +101,7 @@ describe("Students page", () => {
     await userEvent.click(screen.getByRole("button", { name: /add student/i }));
     const dialog = await screen.findByRole("dialog");
     await userEvent.type(within(dialog).getByLabelText(/full name/i), "New Pupil");
+    await userEvent.selectOptions(within(dialog).getByLabelText(/gender/i), "Female");
     await userEvent.click(within(dialog).getByRole("button", { name: /add student/i }));
 
     await waitFor(() => {
@@ -108,10 +109,44 @@ describe("Students page", () => {
       expect(insert).toBeTruthy();
       expect(insert).toContain("student_code");
     });
-    // admission number is derived from the next code (MNA-0004 -> MNA4)
+    // student codes are year-prefixed (e.g. "26MNA0004" in 2026); the
+    // running count still continues from the fixture's 3 legacy-format
+    // students, and the admission number mirrors it de-padded ("26MNA4").
+    const yy = String(new Date().getFullYear()).slice(-2);
     const insertCall = db.execute.mock.calls.find((c) => String(c[0]).includes("INSERT INTO students"));
-    expect(insertCall?.[1]).toContain("MNA-0004");
-    expect(insertCall?.[1]).toContain("MNA4");
+    expect(insertCall?.[1]).toContain(`${yy}MNA0004`);
+    expect(insertCall?.[1]).toContain(`${yy}MNA4`);
+  });
+
+  it("blocks adding a student with no name or no gender", async () => {
+    const { StudentsPage } = await import("@/features/students/StudentsPage");
+    renderWithProviders(<StudentsPage />);
+    await screen.findAllByText("Amina Yakubu");
+
+    await userEvent.click(screen.getByRole("button", { name: /add student/i }));
+    const dialog = await screen.findByRole("dialog");
+
+    // neither name nor gender filled in yet
+    await userEvent.click(within(dialog).getByRole("button", { name: /add student/i }));
+    await waitFor(() =>
+      expect(db.executed().find((s) => s.startsWith("INSERT INTO students"))).toBeUndefined(),
+    );
+    expect(screen.getByRole("dialog")).toBeInTheDocument(); // still open
+
+    // name filled in, but gender still isn't
+    await userEvent.type(within(dialog).getByLabelText(/full name/i), "New Pupil");
+    await userEvent.click(within(dialog).getByRole("button", { name: /add student/i }));
+    await waitFor(() =>
+      expect(db.executed().find((s) => s.startsWith("INSERT INTO students"))).toBeUndefined(),
+    );
+    expect(screen.getByRole("dialog")).toBeInTheDocument(); // still blocked
+
+    // both filled in — now it goes through
+    await userEvent.selectOptions(within(dialog).getByLabelText(/gender/i), "Male");
+    await userEvent.click(within(dialog).getByRole("button", { name: /add student/i }));
+    await waitFor(() =>
+      expect(db.executed().find((s) => s.startsWith("INSERT INTO students"))).toBeTruthy(),
+    );
   });
 
   function decodeCsv(b64: string): string {

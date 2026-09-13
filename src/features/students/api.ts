@@ -6,13 +6,11 @@ import { currentYearId, useSettings, type NamedRow } from "@/features/settings/a
 import { rateCase } from "@/features/fees/api";
 import {
   admissionFromCode,
-  allocateCodes,
+  allocateStudentCodes,
   computeYearBalances,
-  nextCode,
+  nextStudentCode,
   planImport,
   promotionTarget,
-  STUDENT_CODE_WIDTH,
-  STUDENT_PREFIX,
   type YearFeeTotals,
 } from "./logic";
 import type { ImportedStudent, StudentInput, StudentRow } from "./types";
@@ -248,7 +246,7 @@ export function useCreateStudent() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: StudentInput) => {
-      const code = nextCode(await allStudentCodes(), STUDENT_PREFIX, STUDENT_CODE_WIDTH);
+      const code = nextStudentCode(await allStudentCodes());
       const yearId = await currentYearId();
       const filled: StudentInput = {
         ...input,
@@ -373,12 +371,7 @@ export function useImportStudents() {
         classes,
       );
       const toImport = plan.filter((p) => p.action === "import");
-      const codes = allocateCodes(
-        await allStudentCodes(),
-        STUDENT_PREFIX,
-        STUDENT_CODE_WIDTH,
-        toImport.length,
-      );
+      const codes = allocateStudentCodes(await allStudentCodes(), toImport.length);
       const yearId = await currentYearId();
 
       // One transaction for the whole file: each enrollment statement below

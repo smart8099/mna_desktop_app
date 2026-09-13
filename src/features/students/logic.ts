@@ -2,6 +2,9 @@ import { round2 } from "@/lib/money";
 import type { NamedRow } from "@/features/settings/api";
 import type { ImportedStudent, StudentRow } from "./types";
 
+/** Pre-2026 student code format, e.g. "MNA-0042" — still recognized when
+ * computing the next number so the running count carries on from students
+ * created before the year-prefixed format below, but no longer generated. */
 export const STUDENT_PREFIX = "MNA-";
 export const STUDENT_CODE_WIDTH = 4;
 export const TEACHER_PREFIX = "MNA-T";
@@ -35,17 +38,75 @@ export function allocateCodes(
   );
 }
 
-/** Admission number is the Student ID stripped of its dash and zero-padding, e.g. MNA-0042 -> MNA42. */
+// ── student codes: year-prefixed, e.g. "26MNA0092" in 2026 ─────────────────
+//
+// The running number never resets per year — it's the school's all-time
+// admission count, and the leading two digits just record which year a
+// student was actually admitted in. Existing students keep whatever code
+// they already have (old "MNA-0042" format); only new codes use this.
+
+/** The two-digit year prefix for a code generated right now, e.g. "26" in 2026. */
+function yearPrefix(now: Date): string {
+  return String(now.getFullYear()).slice(-2);
+}
+
+/**
+ * The sequence number embedded in a student code, recognizing both the
+ * legacy "MNA-0042" format and the current year-prefixed "26MNA0042" one —
+ * so the running count carries on correctly across the format change. Null
+ * for anything else (e.g. a teacher code).
+ */
+export function studentSequenceNumber(code: string): number | null {
+  const legacy = code.match(/^MNA-(\d+)$/);
+  if (legacy) return parseInt(legacy[1], 10);
+  const current = code.match(/^\d{2}MNA(\d+)$/);
+  if (current) return parseInt(current[1], 10);
+  return null;
+}
+
+/** The highest sequence number used by any existing student code, old or new format. */
+export function maxStudentSequenceNumber(codes: string[]): number {
+  return codes.reduce((max, code) => {
+    const n = studentSequenceNumber(code);
+    return n != null && n > max ? n : max;
+  }, 0);
+}
+
+/** The code a new student gets today, e.g. "26MNA0092". */
+export function nextStudentCode(codes: string[], now: Date = new Date()): string {
+  const n = maxStudentSequenceNumber(codes) + 1;
+  return `${yearPrefix(now)}MNA${String(n).padStart(STUDENT_CODE_WIDTH, "0")}`;
+}
+
+/** `count` fresh sequential student codes for right now, e.g. "26MNA0092".."26MNA0095". */
+export function allocateStudentCodes(
+  codes: string[],
+  count: number,
+  now: Date = new Date(),
+): string[] {
+  const start = maxStudentSequenceNumber(codes) + 1;
+  const yp = yearPrefix(now);
+  return Array.from({ length: count }, (_, i) =>
+    `${yp}MNA${String(start + i).padStart(STUDENT_CODE_WIDTH, "0")}`,
+  );
+}
+
+/**
+ * Admission number is the Student ID stripped of its zero-padding (and, for
+ * the legacy format, its dash) — e.g. "MNA-0042" -> "MNA42",
+ * "26MNA0042" -> "26MNA42".
+ */
 export function admissionFromCode(studentCode: string): string {
-  const n = parseInt(studentCode.replace(/\D/g, ""), 10);
-  return Number.isFinite(n) ? `MNA${n}` : "";
+  const legacy = studentCode.match(/^MNA-(\d+)$/);
+  if (legacy) return `MNA${parseInt(legacy[1], 10)}`;
+  const current = studentCode.match(/^(\d{2})MNA(\d+)$/);
+  if (current) return `${current[1]}MNA${parseInt(current[2], 10)}`;
+  return "";
 }
 
 /** The admission number the next new student will get. */
-export function suggestedAdmissionNo(existingStudentCodes: string[]): string {
-  return admissionFromCode(
-    nextCode(existingStudentCodes, STUDENT_PREFIX, STUDENT_CODE_WIDTH),
-  );
+export function suggestedAdmissionNo(existingStudentCodes: string[], now: Date = new Date()): string {
+  return admissionFromCode(nextStudentCode(existingStudentCodes, now));
 }
 
 /** The class a student moves into on promotion, or null if already at the top. */

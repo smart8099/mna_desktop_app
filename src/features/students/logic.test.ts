@@ -5,16 +5,20 @@ import {
   admissionFromCode,
   ageFromDob,
   allocateCodes,
+  allocateStudentCodes,
   computeYearBalances,
   filterStudents,
   initials,
   maxCodeNumber,
+  maxStudentSequenceNumber,
   nextCode,
+  nextStudentCode,
   nextYearAfter,
   planImport,
   promotionTarget,
   STUDENT_CODE_WIDTH,
   STUDENT_PREFIX,
+  studentSequenceNumber,
   suggestedAdmissionNo,
   TEACHER_CODE_WIDTH,
   TEACHER_PREFIX,
@@ -48,13 +52,57 @@ describe("code generation", () => {
 });
 
 describe("admission numbers", () => {
-  it("strips the dash and zero padding off a Student ID", () => {
+  it("strips the dash and zero padding off a legacy Student ID", () => {
     expect(admissionFromCode("MNA-0042")).toBe("MNA42");
     expect(admissionFromCode("MNA-0001")).toBe("MNA1");
   });
-  it("suggests the number the next student will get", () => {
-    expect(suggestedAdmissionNo(["MNA-0042", "MNA-T003"])).toBe("MNA43");
-    expect(suggestedAdmissionNo([])).toBe("MNA1");
+  it("strips the zero padding off a year-prefixed Student ID", () => {
+    expect(admissionFromCode("26MNA0042")).toBe("26MNA42");
+    expect(admissionFromCode("26MNA0001")).toBe("26MNA1");
+  });
+  it("returns empty for anything unrecognizable (e.g. a teacher code)", () => {
+    expect(admissionFromCode("MNA-T003")).toBe("");
+  });
+});
+
+describe("year-prefixed student codes", () => {
+  // Constructed as local-time (year, monthIndex, day), not an ISO string —
+  // "2027-01-01" would parse as UTC midnight, which can still be Dec 31
+  // 2026 in a timezone behind UTC, flipping the year these tests check.
+  const y2026 = new Date(2026, 5, 15);
+
+  it("reads the sequence number from either format, and rejects everything else", () => {
+    expect(studentSequenceNumber("MNA-0042")).toBe(42);
+    expect(studentSequenceNumber("26MNA0092")).toBe(92);
+    expect(studentSequenceNumber("MNA-T003")).toBeNull();
+    expect(studentSequenceNumber("garbage")).toBeNull();
+  });
+
+  it("the running count carries on from legacy codes, not restarting at 1", () => {
+    expect(maxStudentSequenceNumber(["MNA-0001", "MNA-0091"])).toBe(91);
+    expect(nextStudentCode(["MNA-0001", "MNA-0091"], y2026)).toBe("26MNA0092");
+  });
+
+  it("the running count also carries on across a year boundary (never resets)", () => {
+    expect(nextStudentCode(["26MNA0092"], new Date(2027, 0, 5))).toBe("27MNA0093");
+  });
+
+  it("prepends the current two-digit year to a fresh code", () => {
+    expect(nextStudentCode([], y2026)).toBe("26MNA0001");
+    expect(nextStudentCode([], new Date(2027, 0, 1))).toBe("27MNA0001");
+  });
+
+  it("allocates a contiguous block, year-prefixed, without colliding with old-format codes", () => {
+    expect(allocateStudentCodes(["MNA-0091"], 3, y2026)).toEqual([
+      "26MNA0092",
+      "26MNA0093",
+      "26MNA0094",
+    ]);
+  });
+
+  it("suggests the admission number to match, continuing the same running count", () => {
+    expect(suggestedAdmissionNo(["MNA-0042", "MNA-T003"], y2026)).toBe("26MNA43");
+    expect(suggestedAdmissionNo([], y2026)).toBe("26MNA1");
   });
 });
 

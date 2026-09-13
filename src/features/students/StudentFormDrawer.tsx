@@ -81,6 +81,10 @@ export function StudentFormDrawer({
       toast.error("Full name is required.");
       return;
     }
+    if (!form.gender) {
+      toast.error("Gender is required.");
+      return;
+    }
     try {
       if (student) {
         await update.mutateAsync({ id: student.id, input: form });
@@ -120,7 +124,7 @@ export function StudentFormDrawer({
           onChange={(p) => set("photo_path", p)}
         />
 
-        <Field label="Full name">
+        <Field label={<>Full name <span className="text-danger">*</span></>}>
           <Input value={form.full_name} onChange={(e) => set("full_name", e.target.value)} />
         </Field>
 
@@ -133,7 +137,7 @@ export function StudentFormDrawer({
               className="cursor-default bg-surface-muted text-text-muted"
             />
           </Field>
-          <Field label="Gender">
+          <Field label={<>Gender <span className="text-danger">*</span></>}>
             <Select
               value={form.gender ?? ""}
               onChange={(e) => set("gender", e.target.value || null)}
