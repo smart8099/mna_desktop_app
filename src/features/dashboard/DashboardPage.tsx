@@ -13,9 +13,8 @@ import { LoadingBlock } from "@/components/ui/State";
 import { YearSelect } from "@/components/ui/YearSelect";
 import { formatMoney } from "@/lib/money";
 import { useSettings, useYearFilter } from "@/features/settings/api";
+import { gradeFor, toneForGrade } from "@/features/results/logic";
 import { useDashboard } from "./api";
-
-const GRADE_TONE = { A: "primary", B: "primary", C: "amber", D: "amber", F: "red" } as const;
 
 export function DashboardPage() {
   const { years, year, yearId, setYearId } = useYearFilter();
@@ -36,7 +35,20 @@ export function DashboardPage() {
   const gradeBars: BarItem[] = (["A", "B", "C", "D", "F"] as const).map((g) => ({
     label: `Grade ${g}`,
     value: d.gradeDistribution?.[g] ?? 0,
-    tone: GRADE_TONE[g],
+    tone: toneForGrade(g),
+  }));
+
+  const topPerformerBars: BarItem[] = (d.topPerformers ?? []).map((s) => ({
+    label: s.full_name,
+    value: s.average,
+    display: String(s.average),
+    tone: toneForGrade(gradeFor(s.average)),
+  }));
+  const bottomPerformerBars: BarItem[] = (d.bottomPerformers ?? []).map((s) => ({
+    label: s.full_name,
+    value: s.average,
+    display: String(s.average),
+    tone: toneForGrade(gradeFor(s.average)),
   }));
 
   const attendanceBars: BarItem[] = (d.attendanceByClass ?? []).map((c) => {
@@ -140,6 +152,20 @@ export function DashboardPage() {
           <CardHeader title="Fees" description="Collected vs outstanding" />
           <CardBody>
             <BarList items={feeBars} empty="No fee activity yet." />
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader title="Top performers" description="Highest overall average, active students" />
+          <CardBody>
+            <BarList items={topPerformerBars} max={100} empty="No graded results yet." />
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader title="Needs support" description="Lowest overall average, active students" />
+          <CardBody>
+            <BarList items={bottomPerformerBars} max={100} empty="No graded results yet." />
           </CardBody>
         </Card>
       </div>

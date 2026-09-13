@@ -461,7 +461,7 @@ describe("Dashboard", () => {
     db.on(/COUNT\(a\.id\) AS total FROM classes c/i, () => [{ name: "Class 2", present: 25, total: 35 }]);
     db.on(/COUNT\(\*\) AS n FROM results/i, () => [{ n: 12 }]);
     db.on(/FROM results r JOIN students s ON s\.id = r\.student_id/i, () => [
-      { subject_id: 10, class_id: 2, ca_mark: 80, exam_mark: 80 },
+      { student_id: 1, full_name: "Amina Yakubu", subject_id: 10, class_id: 2, ca_mark: 80, exam_mark: 80 },
     ]);
   });
 
@@ -474,6 +474,22 @@ describe("Dashboard", () => {
     expect(screen.getByText("GH₵ 200.00")).toBeInTheDocument(); // 120 tuition + 80 exam
     // one A grade from 80/80
     expect(screen.getByText("Grade A").closest("li")).toHaveTextContent("1");
+  });
+
+  it("ranks students by overall average into top performers and needs support", async () => {
+    db.on(/FROM results r JOIN students s ON s\.id = r\.student_id/i, () => [
+      { student_id: 1, full_name: "Amina Yakubu", subject_id: 10, class_id: 2, ca_mark: 90, exam_mark: 90 },
+      { student_id: 2, full_name: "Bilal Osei", subject_id: 10, class_id: 2, ca_mark: 30, exam_mark: 30 },
+    ]);
+
+    const { DashboardPage } = await import("@/features/dashboard/DashboardPage");
+    renderWithProviders(<DashboardPage />);
+
+    const topCard = (await screen.findByText("Top performers")).closest(".rounded-xl") as HTMLElement;
+    expect(within(topCard).getByText("Amina Yakubu")).toBeInTheDocument();
+
+    const bottomCard = screen.getByText("Needs support").closest(".rounded-xl") as HTMLElement;
+    expect(within(bottomCard).getByText("Bilal Osei")).toBeInTheDocument();
   });
 });
 

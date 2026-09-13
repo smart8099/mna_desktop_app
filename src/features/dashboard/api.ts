@@ -4,7 +4,7 @@ import { select } from "@/lib/db";
 import { useSettings } from "@/features/settings/api";
 import { rateCase } from "@/features/fees/api";
 import { useGradingConfig } from "@/features/results/api";
-import { gradeFor, resolveWeights, weightedTotal } from "@/features/results/logic";
+import { gradeFor, overallAverage, resolveWeights, weightedTotal } from "@/features/results/logic";
 
 interface NameCount {
   name: string;
@@ -16,10 +16,18 @@ interface AttByClass {
   total: number;
 }
 interface RawResult {
+  student_id: number;
+  full_name: string;
   subject_id: number;
   class_id: number | null;
   ca_mark: number;
   exam_mark: number;
+}
+
+export interface StudentPerformance {
+  student_id: number;
+  full_name: string;
+  average: number;
 }
 
 export function useDashboard(yearId: number | null) {
@@ -111,9 +119,9 @@ export function useDashboard(yearId: number | null) {
     enabled: !!settings,
     queryFn: () =>
       select<RawResult>(
-        `SELECT r.subject_id, s.class_id, r.ca_mark, r.exam_mark
+        `SELECT r.student_id, s.full_name, r.subject_id, s.class_id, r.ca_mark, r.exam_mark
          FROM results r JOIN students s ON s.id = r.student_id
-         WHERE r.ca_mark IS NOT NULL AND r.exam_mark IS NOT NULL
+         WHERE r.ca_mark IS NOT NULL AND r.exam_mark IS NOT NULL AND s.status = 'Active'
          ${yearId != null ? `AND r.year_id = ${Number(yearId)}` : ""}`,
       ),
   });
@@ -122,6 +130,7 @@ export function useDashboard(yearId: number | null) {
     const rows = rawResults.data ?? [];
     const totals: number[] = [];
     const dist: Record<string, number> = { A: 0, B: 0, C: 0, D: 0, F: 0 };
+    const byStudent = new Map<number, { full_name: string; totals: number[] }>();
     for (const r of rows) {
       const w = resolveWeights(r.class_id, r.subject_id, grading.defaults, grading.overrides);
       const total = weightedTotal(r.ca_mark, r.exam_mark, w);
@@ -129,11 +138,32 @@ export function useDashboard(yearId: number | null) {
       totals.push(total);
       const g = gradeFor(total);
       if (g in dist) dist[g] += 1;
+
+      const entry = byStudent.get(r.student_id) ?? { full_name: r.full_name, totals: [] };
+      entry.totals.push(total);
+      byStudent.set(r.student_id, entry);
     }
     const averageResult = totals.length
       ? Math.round((totals.reduce((a, b) => a + b, 0) / totals.length) * 10) / 10
       : null;
-    return { averageResult, gradeDistribution: dist, gradedCount: totals.length };
+
+    const studentAverages: StudentPerformance[] = [...byStudent.entries()]
+      .map(([student_id, v]) => ({
+        student_id,
+        full_name: v.full_name,
+        average: overallAverage(v.totals) ?? 0,
+      }))
+      .sort((a, b) => b.average - a.average);
+    const topPerformers = studentAverages.slice(0, 5);
+    const bottomPerformers = [...studentAverages].reverse().slice(0, 5);
+
+    return {
+      averageResult,
+      gradeDistribution: dist,
+      gradedCount: totals.length,
+      topPerformers,
+      bottomPerformers,
+    };
   }, [rawResults.data, grading.defaults, grading.overrides]);
 
   const c = core.data;
