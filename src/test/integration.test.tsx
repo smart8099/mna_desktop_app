@@ -48,6 +48,11 @@ beforeEach(() => {
   db.reset();
   tauri.reset();
   vi.clearAllMocks();
+  // sessionStorage survives across tests within this one jsdom window —
+  // clear it so useSessionState-backed filters (and the auth session,
+  // which renderWithProviders re-seeds per call anyway) never leak between
+  // unrelated tests.
+  sessionStorage.clear();
   // Batched writes go through invoke("execute_transaction", { statements }) rather
   // than db.execute() directly — bridge it back into the db fake so assertions on
   // db.executed() keep seeing each statement, unchanged from before batching.
@@ -208,6 +213,24 @@ describe("Students page", () => {
     // still allowed: add/edit
     expect(screen.getByRole("button", { name: /add student/i })).toBeInTheDocument();
     expect(screen.getAllByLabelText("Edit").length).toBeGreaterThan(0);
+  });
+
+  it("remembers the search filter across a navigate-away-and-back", async () => {
+    const { StudentsPage } = await import("@/features/students/StudentsPage");
+    const first = renderWithProviders(<StudentsPage />);
+    await screen.findAllByText("Amina Yakubu");
+
+    await userEvent.type(screen.getByPlaceholderText(/search name/i), "bilal");
+    await waitFor(() => expect(screen.queryAllByText("Amina Yakubu")).toHaveLength(0));
+
+    // simulate leaving the page (e.g. clicking a different sidebar item)
+    // and coming back to it, which fully unmounts and remounts the page
+    first.unmount();
+    renderWithProviders(<StudentsPage />);
+
+    await screen.findAllByText("Bilal Osei");
+    expect(screen.queryAllByText("Amina Yakubu")).toHaveLength(0); // filter still applied
+    expect(screen.getByPlaceholderText(/search name/i)).toHaveValue("bilal");
   });
 });
 
@@ -870,6 +893,24 @@ describe("Report Cards", () => {
     expect(img).toBeTruthy();
     // the placeholder is a bundled asset, never run through convertFileSrc
     expect(img!.src).not.toContain("test-asset://");
+  });
+
+  it("lands directly on the deep-linked student, without needing to reselect", async () => {
+    const { ReportCardPage } = await import("@/features/report-cards/ReportCardPage");
+    renderWithProviders(<ReportCardPage />, {
+      route: "/report-cards?class=2&student=2&year=1",
+    });
+
+    // Bilal (student=2) shows immediately — never Amina (the roster's first
+    // student, which the "default to gb.students[0]" effect would otherwise
+    // have raced to pick before the deep link applied). The Student <select>
+    // legitimately lists both names as options, so scope to the rendered
+    // card itself rather than the whole page.
+    await waitFor(() => {
+      const card = document.querySelector(".report-card") as HTMLElement;
+      expect(within(card).getByText("Bilal Osei")).toBeInTheDocument();
+      expect(within(card).queryByText("Amina Yakubu")).not.toBeInTheDocument();
+    });
   });
 });
 

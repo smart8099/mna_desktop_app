@@ -271,7 +271,9 @@ export function StudentDetailPage() {
                   variant="outline"
                   size="sm"
                   onClick={() =>
-                    navigate(`/report-cards?class=${student.class_id}&student=${student.id}`)
+                    navigate(
+                      `/report-cards?class=${student.class_id}&student=${student.id}&year=${yearId ?? ""}`,
+                    )
                   }
                 >
                   <FileText className="h-4 w-4" />

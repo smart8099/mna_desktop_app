@@ -21,6 +21,7 @@ import { Pagination } from "@/components/ui/Pagination";
 import { LoadingBlock, ErrorBlock } from "@/components/ui/State";
 import { useDebounce } from "@/lib/useDebounce";
 import { usePagination } from "@/lib/usePagination";
+import { useSessionState } from "@/lib/useSessionState";
 import { useNamedList } from "@/features/settings/api";
 import { useDeleteStudent, usePromoteStudents, useStudents } from "./api";
 import { filterStudents, initials, promotionTarget, suggestedAdmissionNo } from "./logic";
@@ -48,9 +49,12 @@ export function StudentsPage() {
   const promote = usePromoteStudents();
   const del = useDeleteStudent();
 
-  const [q, setQ] = useState("");
-  const [classId, setClassId] = useState<number | "all">("all");
-  const [status, setStatus] = useState<string>("all");
+  // Persisted per session, not per mount — so leaving and coming back to
+  // this page via the sidebar (rather than a fresh app launch) doesn't lose
+  // whatever you'd already searched or filtered for.
+  const [q, setQ] = useSessionState("mna.students.q", "");
+  const [classId, setClassId] = useSessionState<number | "all">("mna.students.classId", "all");
+  const [status, setStatus] = useSessionState<string>("mna.students.status", "all");
   const debouncedQ = useDebounce(q, 200);
 
   const [selected, setSelected] = useState<Set<number>>(new Set());

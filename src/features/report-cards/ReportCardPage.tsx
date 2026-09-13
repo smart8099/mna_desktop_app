@@ -25,11 +25,21 @@ export function ReportCardPage() {
   const [classId, setClassId] = useState<number | null>(null);
   const [studentId, setStudentId] = useState<number | null>(null);
 
-  // Deep link from the student profile page: /report-cards?class=..&student=..
+  // Deep link from the student profile page:
+  // /report-cards?class=..&student=..&year=..
+  // Applied exactly once, before either "default to the first class/student"
+  // effect below gets a chance to run — otherwise those two effects can win
+  // the race against this one depending on how fast `classes`/`gb.students`
+  // happen to load, silently landing on the wrong class or student.
+  const paramsAppliedRef = useRef(false);
   useEffect(() => {
+    if (paramsAppliedRef.current) return;
+    paramsAppliedRef.current = true;
     const c = Number(searchParams.get("class"));
     const s = Number(searchParams.get("student"));
+    const y = Number(searchParams.get("year"));
     if (c) setClassId(c);
+    if (y) setYearId(y);
     if (s) {
       setMode("single");
       setStudentId(s);
@@ -38,6 +48,7 @@ export function ReportCardPage() {
   }, []);
 
   useEffect(() => {
+    if (!paramsAppliedRef.current) return;
     if (classId == null && classes.length) setClassId(classes[0].id);
   }, [classes, classId]);
 
@@ -45,6 +56,7 @@ export function ReportCardPage() {
   const saveRemark = useSaveGeneralRemark();
 
   useEffect(() => {
+    if (!paramsAppliedRef.current) return;
     if (gb.students.length && !gb.students.some((s) => s.student_id === studentId)) {
       setStudentId(gb.students[0].student_id);
     }
