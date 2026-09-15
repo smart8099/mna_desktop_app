@@ -74,7 +74,7 @@ export function createDbMock() {
   };
 
   return {
-    module: { select, selectOne, execute, executeBatch, getDb: vi.fn() },
+    module: { select, selectOne, execute, executeBatch, getDb: vi.fn(async () => ({})) },
     execute,
     // Newest registration wins when two patterns match the same SQL — lets a
     // test's own db.on() override a pattern baseFixtures() already covers,

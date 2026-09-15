@@ -62,10 +62,18 @@ pub struct PublicUser {
 
 fn has_any_users_at(path: &Path) -> Result<bool, String> {
     let conn = Connection::open(path).map_err(|e| e.to_string())?;
-    let n: i64 = conn
-        .query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))
-        .map_err(|e| e.to_string())?;
-    Ok(n > 0)
+    match conn.query_row("SELECT COUNT(*) FROM users", [], |r| r.get::<_, i64>(0)) {
+        Ok(n) => Ok(n > 0),
+        // A brand-new database file — before the frontend's plugin-sql
+        // connection has had a chance to run its migrations — has no
+        // `users` table at all yet. That unambiguously means no account
+        // exists, not a real error to fail safe on (the caller otherwise
+        // treats any error here as "assume an account exists", which would
+        // strand a fresh install at the login screen with nothing to log
+        // into).
+        Err(e) if e.to_string().contains("no such table") => Ok(false),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 fn validate_credentials(username: &str, password: &str) -> Result<(), String> {
@@ -390,5 +398,17 @@ mod tests {
         assert!(!has_any_users_at(&path).unwrap());
         create_first_admin_at(&path, "amina", "secret1").unwrap();
         assert!(has_any_users_at(&path).unwrap());
+    }
+
+    #[test]
+    fn has_any_users_is_false_on_a_database_with_no_tables_yet() {
+        // The real bug this guards: a fresh install's database file has no
+        // `users` table at all until the frontend's own connection has run
+        // its migrations. That must read as "no account yet" (-> show
+        // setup), not as an error (-> the caller's fail-safe wrongly shows
+        // the login screen with no account in existence to log into).
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mna.db");
+        assert!(!has_any_users_at(&path).unwrap());
     }
 }

@@ -5,6 +5,11 @@ import { renderWithProviders, tauri } from "@/test/harness";
 import { AuthGate } from "./AuthGate";
 
 vi.mock("@tauri-apps/api/core", async () => (await import("@/test/harness")).tauri.core);
+// AuthGate awaits getDb() (to let migrations run) before checking has_any_users —
+// mock it out here the same way integration.test.tsx does, so that check
+// doesn't hit the real @tauri-apps/plugin-sql module, which has no Tauri
+// backend to talk to in jsdom.
+vi.mock("@/lib/db", async () => (await import("@/test/harness")).db.module);
 
 beforeEach(() => {
   tauri.reset();
